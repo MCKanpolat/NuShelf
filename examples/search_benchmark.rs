@@ -41,6 +41,7 @@ async fn main() -> Result<()> {
         database_connections: 20,
         storage_provider: "local".into(),
         storage_path: dir.path().to_string_lossy().into_owned(),
+        metrics_bind: None,
     };
     let state = AppState {
         db: db.clone(),

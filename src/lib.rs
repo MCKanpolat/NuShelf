@@ -11,6 +11,7 @@ pub mod mcp;
 pub mod package;
 pub mod registry;
 pub mod storage;
+pub mod telemetry;
 pub mod trusted;
 pub mod upstream;
 pub mod version;
@@ -113,6 +114,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/profiles/{id}/keys/{key}",axum::routing::delete(auth::revoke_key))
         .route("/api/profiles/{id}/packages",get(registry::owned_packages))
         .route("/mcp",post(mcp::endpoint).get(mcp::no_stream).delete(mcp::no_stream))
+        .route_layer(axum::middleware::from_fn(telemetry::track))
         .layer(DefaultBodyLimit::max(64*1024))
         .layer(axum::middleware::from_fn_with_state(state.clone(),events::record))
         .layer(CompressionLayer::new())

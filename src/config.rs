@@ -11,6 +11,8 @@ pub struct Config {
     pub database_connections: u32,
     pub storage_provider: String,
     pub storage_path: String,
+    /// Separate listener for `GET /metrics`; metrics are off when unset.
+    pub metrics_bind: Option<SocketAddr>,
 }
 
 impl Config {
@@ -49,17 +51,31 @@ impl Config {
             (1..=200).contains(&database_connections),
             "DATABASE_CONNECTIONS must be between 1 and 200"
         );
+        let bind: SocketAddr = env::var("BIND_ADDRESS")
+            .unwrap_or_else(|_| "127.0.0.1:5000".into())
+            .parse()?;
+        let metrics_bind = match env::var("METRICS_BIND_ADDRESS") {
+            Ok(value) if !value.is_empty() => Some(
+                value
+                    .parse::<SocketAddr>()
+                    .context("METRICS_BIND_ADDRESS is invalid")?,
+            ),
+            _ => None,
+        };
+        ensure!(
+            metrics_bind.is_none_or(|metrics| metrics.port() != bind.port()),
+            "METRICS_BIND_ADDRESS must use a different port from BIND_ADDRESS"
+        );
         Ok(Self {
             database_url: env::var("DATABASE_URL").context("Set DATABASE_URL")?,
             public_url: public_url.trim_end_matches('/').into(),
-            bind: env::var("BIND_ADDRESS")
-                .unwrap_or_else(|_| "127.0.0.1:5000".into())
-                .parse()?,
+            bind,
             admin_key,
             max_package_bytes,
             database_connections,
             storage_provider: env::var("STORAGE_PROVIDER").unwrap_or_else(|_| "local".into()),
             storage_path: env::var("STORAGE_PATH").unwrap_or_else(|_| "./data/packages".into()),
+            metrics_bind,
         })
     }
 }

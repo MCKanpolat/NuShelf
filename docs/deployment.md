@@ -32,6 +32,7 @@ docker compose ps
 | `STORAGE_PATH` | `/data/packages` inside the runtime container. |
 | `MAX_PACKAGE_BYTES` | `104857600` (100 MiB). |
 | `DATABASE_CONNECTIONS` | `20`. |
+| `METRICS_BIND_ADDRESS` | Unset (metrics off). Address of a separate Prometheus listener, e.g. `0.0.0.0:9090`; see [Metrics](#metrics). |
 
 Compose supplies the internal `DATABASE_URL` and the runtime binds to `0.0.0.0:5000` inside its container. The host port defaults to `127.0.0.1:5000`. PostgreSQL is not published to the host.
 
@@ -167,6 +168,19 @@ Create the bucket beforehand and mount the service account file read-only into t
 Storage credentials are deployment secrets, separate from publisher API keys. Management displays the active provider but does not return or edit storage secrets.
 
 Changing `STORAGE_PROVIDER` does not move existing blobs. Copy archives to the target provider under the same storage keys before switching configuration.
+
+## Metrics
+
+Set `METRICS_BIND_ADDRESS` to serve Prometheus metrics at `GET /metrics` on a separate listener, for example `0.0.0.0:9090`. It must use a different port from the registry, and it is not routed through the registry port, so publishing the registry does not expose it. Without the setting nothing is recorded.
+
+| Metric | Type | Labels |
+| --- | --- | --- |
+| `nushelf_http_requests_total` | counter | `method`, `route`, `status` |
+| `nushelf_http_request_duration_seconds` | histogram | `method`, `route`, `status` |
+| `nushelf_db_pool_connections` | gauge | `state` (`idle`, `active`) |
+| `nushelf_build_info` | gauge | `version` |
+
+`route` is the matched route pattern, such as `/v3/flatcontainer/{id}/{version}/{file}`, so package IDs and versions never become label values. Publishes are `PUT /api/v2/package` or `PUT /api/v2/package/` requests (the .NET client uses the trailing slash) and downloads are `GET /v3/flatcontainer/{id}/{version}/{file}` requests.
 
 ## MCP connection
 

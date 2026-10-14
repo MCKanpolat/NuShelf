@@ -51,6 +51,14 @@ async fn key(client: &Client, base: &str, profile: &str, scopes: &[&str], prefix
 async fn postgres_registry_local_and_s3() {
     let database_url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL");
     let root = PgPool::connect(&database_url).await.unwrap();
+    let metrics_handle = nushelf::telemetry::install().unwrap();
+    let metrics_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let metrics_url = format!("http://{}/metrics", metrics_listener.local_addr().unwrap());
+    let metrics_server = tokio::spawn(nushelf::telemetry::serve(
+        metrics_listener,
+        metrics_handle,
+        root.clone(),
+    ));
     for provider in ["local", "s3"] {
         let db_name = format!("nushelf_it_{}", Uuid::new_v4().simple());
         sqlx::query(&format!("CREATE DATABASE {db_name}"))
@@ -77,6 +85,7 @@ async fn postgres_registry_local_and_s3() {
             database_connections: 8,
             storage_provider: provider.into(),
             storage_path: dir.path().to_str().unwrap().into(),
+            metrics_bind: None,
         };
         let storage: Arc<dyn object_store::ObjectStore> = if provider == "local" {
             nushelf::storage::build(&config).unwrap()
@@ -576,6 +585,16 @@ async fn postgres_registry_local_and_s3() {
         println!(
             "Verified PostgreSQL + {provider}: publish, restore metadata, search, ownership, scopes, unlist/relist, concurrent writes and MCP"
         );
+        assert_eq!(
+            client
+                .get(format!("{base}/metrics"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NOT_FOUND,
+            "metrics must not be served on the public registry port"
+        );
         server.abort();
         db.close().await;
         sqlx::query(&format!("DROP DATABASE {db_name} WITH (FORCE)"))
@@ -583,5 +602,21 @@ async fn postgres_registry_local_and_s3() {
             .await
             .unwrap();
     }
+    let scrape = reqwest::get(&metrics_url).await.unwrap();
+    assert_eq!(scrape.status(), StatusCode::OK);
+    let body = scrape.text().await.unwrap();
+    for expected in [
+        r#"nushelf_http_requests_total{method="GET",route="/v3/index.json",status="200"} 2"#,
+        r#"nushelf_http_request_duration_seconds_bucket{method="GET",route="/v3/index.json",status="200",le="+Inf"} 2"#,
+        r#"nushelf_db_pool_connections{state="idle"}"#,
+        r#"nushelf_build_info{version=""#,
+    ] {
+        assert!(body.contains(expected), "missing `{expected}` in:\n{body}");
+    }
+    assert!(
+        !body.contains(r#"route="/v3/flatcontainer/example"#),
+        "raw paths leaked into route labels:\n{body}"
+    );
+    metrics_server.abort();
     root.close().await;
 }
