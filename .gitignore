@@ -1,0 +1,7 @@
+/target/
+/.tools/
+/.env
+/data/
+/test-results/
+*.log
+node_modules/

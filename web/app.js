@@ -1,0 +1,268 @@
+'use strict';
+const $ = (selector, root = document) => root.querySelector(selector);
+const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num = value => new Intl.NumberFormat('en-US').format(value || 0);
+const date = value => value ? new Date(value).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) : 'No expiration';
+const feed = `${location.origin}/v3/index.json`;
+let currentKey = '', identity = null, selectedProfile = '', profiles = [], generatedKey = '', routeGeneration = 0, toastTimer, upstreamSources = [];
+const scopeLabels = {'package:push':'Publish packages','package:unlist':'Unlist & relist packages','package:read':'Read private upstream packages','mcp:read':'Use MCP tools','keys:manage':'Manage profile & API keys'};
+const main = $('#main');
+
+async function api(path, options = {}, authenticated = false) {
+  const headers = new Headers(options.headers || {});
+  if (authenticated || (currentKey && (path.startsWith('/v3/') || path.startsWith('/api/packages/')))) headers.set('Authorization', `Bearer ${currentKey}`);
+  if (options.body && !(options.body instanceof FormData) && typeof options.body !== 'string') {
+    headers.set('Content-Type','application/json'); options.body = JSON.stringify(options.body);
+  }
+  const response = await fetch(path, {...options, headers});
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || `Request failed (${response.status}). Please try again.`);
+  }
+  return response.status === 204 ? null : response.json();
+}
+function toast(message) { const node = $('#toast'); node.textContent = message; node.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => node.hidden = true, 4500); }
+function errorBox(message) { return `<div class="error-message" role="alert">${esc(message)}</div>`; }
+function loading() { return '<div class="loading" role="status">Loading registry…</div>'; }
+function heading(title, subtitle, extra = '') { return `<section class="page-heading"><div class="shell page-title-actions"><div><span class="eyebrow">YOUR PACKAGE WORKSPACE</span><h1>${esc(title)}</h1><p>${esc(subtitle)}</p></div>${extra}</div></section>`; }
+function searchForm(value = '') { return `<form class="search-form" data-form="search"><span class="search-icon" aria-hidden="true">⌕</span><label class="visually-hidden" for="package-query">Search packages</label><input id="package-query" name="q" value="${esc(value)}" type="search" placeholder="Search packages, tags, or a keyword…" maxlength="256" autocomplete="off"><button type="submit">Search packages</button></form>`; }
+function empty(title, message, action = '') { return `<div class="empty-state"><div class="empty-symbol" aria-hidden="true">◇</div><h3>${esc(title)}</h3><p>${esc(message)}</p>${action}</div>`; }
+function packageRows(packages) {
+  return packages.map(p => `<article class="package-row"><div class="package-icon" aria-hidden="true">${esc(p.id.slice(0,2).toUpperCase())}</div><div class="package-info"><div class="package-title-line"><h3><a href="/packages/${encodeURIComponent(p.id)}">${esc(p.id)}</a></h3><span class="badge">${esc(p.version)}</span></div><p class="package-description">${esc(p.description)}</p><div class="package-meta"><span>↓ ${num(p.totalDownloads)} downloads</span><span>by ${esc((p.owners || p.authors || []).join(', '))}</span><span>${date(p.published)}</span></div><div class="tag-list">${(p.tags || []).filter(Boolean).slice(0,5).map(t => `<a class="tag" href="/packages?q=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div></div></article>`).join('');
+}
+function connectCard() { return `<div class="sidebar-card blue"><span class="eyebrow">GET STARTED</span><h3>One feed. All your projects.</h3><p>Add NuShelf as a package source and bring your team’s packages closer to your code.</p><div class="step"><span class="step-number">1</span><span>Connect your NuGet client</span></div><pre>dotnet nuget add source\n  ${esc(feed)}\n  --name NuShelf</pre><div class="step"><span class="step-number">2</span><span>Restore, build, and keep going.</span></div><a href="/docs" class="button">Set up your package source →</a></div><div class="sidebar-card"><span class="eyebrow">BUILT FOR YOUR WORKFLOW</span><h3>Packages meet your AI tools.</h3><p>Find packages, explore dependencies, and discover versions through the registry’s MCP endpoint.</p><a class="sidebar-link" href="/docs#mcp">Connect an MCP client ↗</a></div>`; }
+async function home(generation) {
+  document.title = 'NuShelf · Your packages, at home.';
+  main.innerHTML = `<section class="hero"><div class="shell hero-inner"><span class="eyebrow">THE HOME FOR YOUR .NET PACKAGES</span><h1>Your packages.<br><em>Your registry.</em></h1><p>Discover, share, and build with the packages your team trusts.</p>${searchForm()}<div class="popular-searches"><span>Explore by tag</span>${['json','logging','aspnet','testing'].map(t => `<a href="/packages?q=${t}">${t}</a>`).join('')}</div><div class="hero-bottom"><div class="feed-line"><span class="feed-label">PACKAGE SOURCE</span><code>${esc(feed)}</code><button class="icon-button" data-action="copy-feed" aria-label="Copy package source">Copy ↗</button></div><span class="hero-status"><span class="status-dot"></span>Self-hosted. Ready for your team.</span></div></div></section><section class="stats-strip" aria-label="Registry statistics"><div class="shell stats-inner">${[['packages','Packages'],['versions','Package versions'],['downloads','Downloads'],['profiles','Publisher profiles']].map(([id,label]) => `<div class="stat"><strong data-stat="${id}">—</strong><span>${label}</span></div>`).join('')}</div></section><div class="shell content-grid"><section><div class="section-heading"><h2>Explore your registry</h2><a href="/packages">View all packages →</a></div><p class="section-subtitle">Useful building blocks, in one familiar place.</p><div class="section-tabs"><button class="active" data-action="home-tab" data-sort="recent">Recently published</button><button data-action="home-tab" data-sort="downloads">Most downloaded</button></div><div id="home-packages">${loading()}</div><div class="feature-strip"><div class="feature-item"><span class="feature-symbol" aria-hidden="true">◇</span><h3>Familiar by design</h3><p>Publish and restore with the NuGet tools you already use.</p></div><div class="feature-item"><span class="feature-symbol" aria-hidden="true">⌕</span><h3>Find your next dependency</h3><p>Search package IDs, descriptions, authors, and tags.</p></div><div class="feature-item"><span class="feature-symbol" aria-hidden="true">⌘</span><h3>You’re in control</h3><p>Own your packages, your credentials, and your storage.</p></div></div></section><aside>${connectCard()}</aside></div>`;
+  const results = await Promise.allSettled([api('/api/stats'),api('/v3/search?sort=recent&take=5&semVerLevel=2.0.0')]);
+  if (generation !== routeGeneration) return;
+  if (results[0].status === 'fulfilled') Object.entries(results[0].value).forEach(([key,value]) => { const target = $(`[data-stat="${key}"]`); if (target) target.textContent = num(value); });
+  const packageNode = $('#home-packages');
+  if (results[1].status === 'rejected') packageNode.innerHTML = errorBox(results[1].reason.message);
+  else packageNode.innerHTML = results[1].value.data.length ? packageRows(results[1].value.data) : empty('Your registry starts here.','Publish your first package and give your team a place to build together.','<a href="/publish" class="button primary">Publish your first package →</a>');
+}
+async function searchPage(generation) {
+  const params = new URLSearchParams(location.search), query = params.get('q') || '', skip = Math.max(0,Number(params.get('skip')) || 0), pre = params.get('prerelease') === 'true', sort = params.get('sort') || 'relevance';
+  document.title = `${query ? `${query} · ` : ''}Packages · NuShelf`;
+  main.innerHTML = `<section class="hero"><div class="shell hero-inner"><span class="eyebrow">FIND YOUR NEXT BUILDING BLOCK</span><h1>Explore packages.</h1>${searchForm(query)}</div></section><div class="shell content-grid"><section><div class="section-heading"><h2 id="search-heading">Searching packages…</h2></div><div class="filters"><label><input id="prerelease-filter" type="checkbox" ${pre ? 'checked' : ''}> Include prerelease</label><label class="visually-hidden" for="sort-filter">Sort packages</label><select id="sort-filter">${[['relevance','Relevance'],['recent','Recently published'],['downloads','Most downloaded'],['name','Name']].map(([value,label]) => `<option value="${value}" ${sort === value ? 'selected' : ''}>${label}</option>`).join('')}</select></div><div id="search-results">${loading()}</div><div id="pagination"></div></section><aside>${connectCard()}</aside></div>`;
+  const url = new URLSearchParams({q:query,skip:String(skip),take:'20',prerelease:String(pre),sort,semVerLevel:'2.0.0'});
+  try {
+    const result = await api(`/v3/search?${url}`); if (generation !== routeGeneration) return;
+    $('#search-heading').textContent = `${num(result.totalHits)} ${result.totalHits === 1 ? 'package' : 'packages'}${query ? ` for “${query}”` : ''}`;
+    $('#search-results').innerHTML = result.data.length ? packageRows(result.data) : empty('No packages found.','Try another keyword, include prereleases, or look up an exact package ID in your configured upstreams.',/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(query)?`<a class="button" href="/packages/${encodeURIComponent(query)}">Look up ${esc(query)} in upstreams →</a>`:'');
+    const pageLink = offset => { const p = new URLSearchParams(location.search); p.set('skip',String(offset)); return `/packages?${p}`; };
+    $('#pagination').innerHTML = `<div class="pagination">${skip ? `<a class="button" href="${esc(pageLink(skip-20))}">← Previous</a>` : '<span></span>'}<span>${result.totalHits ? `${skip+1}–${skip+result.data.length} of ${num(result.totalHits)}` : '0 results'}</span>${skip+20 < result.totalHits ? `<a class="button" href="${esc(pageLink(skip+20))}">Next →</a>` : '<span></span>'}</div>`;
+  } catch(e) { if (generation === routeGeneration) $('#search-results').innerHTML = errorBox(e.message); }
+}
+async function detailPage(generation) {
+  const parts = location.pathname.split('/').filter(Boolean), id = decodeURIComponent(parts[1]), requested = parts[2] ? decodeURIComponent(parts[2]) : null;
+  main.innerHTML = `<div class="shell page-content">${loading()}</div>`;
+  try {
+    const result = await api(`/api/packages/${encodeURIComponent(id)}`); if (generation !== routeGeneration) return;
+    let selected = requested ? result.versions.find(v => v.version.toLowerCase() === requested.toLowerCase() || v.normalizedVersion === requested.toLowerCase()) : result.versions.find(v => v.version === result.version);
+    if (!selected) { main.innerHTML = `<div class="shell page-content">${empty('Version not found.','This package version is not available.',`<a class="button" href="/packages/${encodeURIComponent(id)}">View package</a>`)}</div>`; return; }
+    // Specific version metadata comes from registration catalog entries, never from the latest release.
+    let metadata = result;
+    if (selected.version !== result.version) {
+      const registration = await api(`/v3/registration/${encodeURIComponent(id.toLowerCase())}/index.json`);
+      if (generation !== routeGeneration) return;
+      metadata = registration.items.flatMap(page => page.items).find(leaf => leaf.catalogEntry.version === selected.version).catalogEntry;
+    }
+    document.title = `${result.id} ${selected.version} · NuShelf`;
+    const dependencies = selected.dependencies || [];
+    main.innerHTML = `<div class="shell page-content"><div class="breadcrumbs"><a href="/packages">Packages</a> / ${esc(result.id)}</div><div class="detail-layout"><section><div class="detail-header"><div class="package-icon">${esc(result.id.slice(0,2).toUpperCase())}</div><div><h1>${esc(result.id)}</h1><p>by ${esc(result.owner)} · <span class="badge">${esc(selected.version)}</span> ${selected.listed ? '' : '<span class="badge red">Unlisted</span>'}</p></div></div><pre>dotnet add package ${esc(result.id)} --version ${esc(selected.version)} --source ${esc(feed)}</pre><div class="detail-tabs"><a href="#about">About</a><a href="#dependencies">Dependencies</a><a href="#versions">Versions</a></div><section id="about"><h2>About this package</h2><p class="detail-description">${esc(metadata.description)}</p><div class="tag-list">${(metadata.tags || []).filter(Boolean).map(t => `<a class="tag" href="/packages?q=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div></section><hr><section id="dependencies"><h2>Dependencies</h2>${dependencies.length ? dependencies.map(g => `<h3>${esc(g.targetFramework || 'All frameworks')}</h3>${g.dependencies.length ? `<ul>${g.dependencies.map(d => `<li><a href="/packages/${encodeURIComponent(d.id)}">${esc(d.id)}</a> <code>${esc(d.range)}</code></li>`).join('')}</ul>` : '<p>No dependencies for this framework.</p>'}`).join('') : '<p>This version has no package dependencies.</p>'}</section><hr><section id="versions"><h2>Version history</h2><div class="table-wrap"><table class="version-table"><thead><tr><th>Version</th><th>Published</th><th>Downloads</th><th>Status</th></tr></thead><tbody>${result.versions.map(v => `<tr><td><a href="/packages/${encodeURIComponent(id)}/${encodeURIComponent(v.normalizedVersion)}">${esc(v.version)}</a></td><td>${date(v.published)}</td><td>${num(v.downloads)}</td><td><span class="badge ${v.listed ? 'green' : 'red'}">${v.listed ? v.prerelease ? 'Prerelease' : 'Listed' : 'Unlisted'}</span></td></tr>`).join('')}</tbody></table></div></section></section><aside><div class="sidebar-card"><h3>Package information</h3><dl class="detail-facts"><dt>Total downloads</dt><dd>${num(result.totalDownloads)}</dd><dt>Published</dt><dd>${date(selected.published)}</dd><dt>Publisher</dt><dd>${esc(result.owner)}</dd><dt>Authors</dt><dd>${esc(metadata.authors)}</dd><dt>License</dt><dd>${esc(metadata.licenseExpression || 'Not specified')}</dd><dt>Package size</dt><dd>${num(Math.ceil(selected.size/1024))} KB</dd></dl><a class="button primary" href="${esc(selected.downloadUrl)}" download>Download package ↓</a>${metadata.projectUrl ? `<a class="sidebar-link" href="${esc(metadata.projectUrl)}" target="_blank" rel="noopener">Project website ↗</a>` : ''}</div><div class="sidebar-card blue"><h3>Make it part of your project.</h3><p>Connect your NuGet client to install this package and restore its dependencies.</p><a href="/docs" class="sidebar-link">View setup instructions →</a></div></aside></div></div>`;
+    if (result.upstream) {
+      $('.detail-header p').insertAdjacentHTML('beforeend',` · <span class="badge">Upstream: ${esc(result.upstream.name)}</span> <span class="badge ${selected.cached?'green':''}">${selected.cached?'Cached locally':'Fetch on download'}</span>`);
+      const facts=$('.detail-facts');facts.insertAdjacentHTML('beforeend',`<dt>Upstream source</dt><dd>${esc(result.upstream.name)}${result.upstream.private?' · Private':''}</dd><dt>Cache</dt><dd>${selected.cached?'Archive cached in your storage':'Metadata available; archive fetched on first download'}</dd>`);
+      if (selected.size==null) {const label=Array.from(facts.querySelectorAll('dt')).find(n=>n.textContent==='Package size');if(label)label.nextElementSibling.textContent='Not cached yet';}
+      if (result.upstream.private) {const link=$('a[download]');link.dataset.action='download-private';link.dataset.url=selected.downloadUrl;link.dataset.filename=`${result.id}.${selected.normalizedVersion}.nupkg`;}
+    }
+  } catch(e) { if (generation === routeGeneration) main.innerHTML = `<div class="shell page-content">${empty('Package unavailable.',e.message,'<a class="button" href="/packages">Back to packages</a>')}</div>`; }
+}
+function publishPage() {
+  document.title = 'Publish a package · NuShelf';
+  main.innerHTML = `${heading('Publish a package.','Share a new building block with your team.')}<div class="shell page-content narrow"><div class="panel"><span class="eyebrow">PUBLISH WITH YOUR CLI</span><h2>From your terminal to your registry.</h2><p>Use a profile API key with publish permission. Existing versions are immutable.</p><pre>dotnet nuget push ./your-package.nupkg \\\n  --source ${esc(feed)} \\\n  --api-key &lt;YOUR_API_KEY&gt;</pre><a href="/manage?tab=keys">Manage your API keys →</a></div><div class="panel"><h2>Or upload a package here.</h2><p>Select a .nupkg file built with <code>dotnet pack</code>.</p><form data-form="publish"><div class="field"><label for="upload-key">Profile API key</label><input id="upload-key" type="password" name="key" required autocomplete="off" placeholder="nsh_…"><small>Used for this request. Never saved in browser storage.</small></div><div class="field"><label for="package-file">Package file</label><input id="package-file" type="file" name="package" accept=".nupkg" required></div><button class="button primary" type="submit">Publish package ↑</button><div class="form-error" role="alert"></div><div id="upload-result"></div></form></div></div>`;
+  if (identity && !identity.admin && identity.scopes.includes('package:push')) $('#upload-key').value = currentKey;
+}
+function docsPage() {
+  document.title = 'Documentation · NuShelf';
+  main.innerHTML = `${heading('A familiar workflow.','Connect once. Publish, restore, and build with the tools you already know.')}<div class="shell page-content narrow"><section class="doc-section"><h2>1. Add your package source</h2><p>Package downloads and searches are public. Publishing requires an API key tied to a publisher profile.</p><pre>dotnet nuget add source ${esc(feed)} --name NuShelf</pre></section><section class="doc-section"><h2>2. Publish your first package</h2><p>A workspace administrator creates your profile and first API key in the management area. Choose a package prefix to limit where a key can publish.</p><pre>dotnet pack --configuration Release\ndotnet nuget push ./bin/Release/Your.Package.1.0.0.nupkg \\\n  --source ${esc(feed)} \\\n  --api-key &lt;YOUR_API_KEY&gt;</pre><a class="button" href="/manage">Open workspace management →</a></section><section class="doc-section"><h2>3. Install and restore</h2><pre>dotnet add package Your.Package --version 1.0.0\ndotnet restore</pre><p>The first profile to publish a package owns its ID. Other profiles cannot upload new versions to that ID. Unlisted versions stay downloadable so existing projects can restore.</p></section><section class="doc-section" id="mcp"><h2>Connect your AI tools with MCP</h2><p>The endpoint uses stateless Streamable HTTP and the MCP 2025-06-18 protocol. Use a profile API key with <code>mcp:read</code> permission. Configure your MCP client’s remote HTTP connection:</p><pre>${esc(JSON.stringify({mcpServers:{nushelf:{url:`${location.origin}/mcp`,headers:{Authorization:'Bearer <YOUR_API_KEY>'}}}},null,2))}</pre><p>Client configuration formats vary. Available tools: <code>search_packages</code>, <code>get_package</code>, and <code>list_versions</code>. All tools are read-only. HTTP clients must send an Accept header containing <code>application/json</code> and <code>text/event-stream</code>, and <code>MCP-Protocol-Version: 2025-06-18</code> after initialization.</p></section><section class="doc-section"><h2>Your packages, your storage.</h2><p>Choose your storage provider in the server’s deployment configuration. Profile credentials and storage service credentials are kept separate.</p><div class="provider-grid">${[['Local filesystem','A mounted Docker volume. No external storage needed.'],['Amazon S3 & compatible','AWS S3, MinIO, and other compatible object stores.'],['Azure Blob Storage','Connect a container using Azure credentials.'],['Google Cloud Storage','Connect a bucket using Google service credentials.']].map(([name,text]) => `<div class="provider-card"><h3>${name}</h3><p>${text}</p></div>`).join('')}</div></section><div class="documentation-links"><a href="https://learn.microsoft.com/en-us/nuget/api/overview" target="_blank" rel="noopener">NuGet V3 reference ↗</a><a href="https://modelcontextprotocol.io/specification/2025-06-18/basic/transports" target="_blank" rel="noopener">MCP transport reference ↗</a></div></div>`;
+}
+function managementLogin() {
+  main.innerHTML = `${heading('Your workspace, in your hands.','Manage publisher profiles, credentials, and packages.')}<div class="shell page-content"><div class="panel login-panel"><span class="eyebrow">WORKSPACE ACCESS</span><h2>Welcome back.</h2><p>Enter your profile API key to manage your packages. Administrators can use the workspace admin key to manage all profiles.</p><form data-form="login"><div class="field"><label for="login-key">API key</label><input id="login-key" name="key" type="password" required autocomplete="off" placeholder="Enter your API key"><small>Your key stays in this tab’s memory and is cleared when you sign out or reload.</small></div><button type="submit" class="button primary">Open workspace →</button><div class="form-error" role="alert"></div></form></div></div>`;
+}
+function canManageKeys() { return identity?.admin || identity?.scopes?.includes('keys:manage'); }
+function canUnlist() { return identity?.admin || identity?.scopes?.includes('package:unlist'); }
+async function managementPage(generation) {
+  document.title = 'Workspace management · NuShelf';
+  if (!identity) { managementLogin(); return; }
+  let tab = new URLSearchParams(location.search).get('tab') || 'overview';
+  if (!['overview','keys','packages','profiles','settings','upstreams','cache'].includes(tab)) tab = 'overview';
+  if (identity.admin) {
+    try { profiles = await api('/api/profiles',{},true); } catch(e) { if (generation === routeGeneration) { currentKey='';identity=null;managementLogin();toast(e.message); } return; }
+    if (generation !== routeGeneration) return;
+    if (!profiles.some(p => p.id === selectedProfile)) selectedProfile = profiles[0]?.id || '';
+  } else { selectedProfile = identity.profileId; profiles = [{id:selectedProfile,name:identity.name}]; }
+  const profile = profiles.find(p => p.id === selectedProfile);
+  const navItems = [['overview','Overview'],...(canManageKeys() ? [['keys','API keys & credentials']] : []),['packages','My packages'],...(identity.admin ? [['profiles','Publisher profiles'],['upstreams','Upstream sources'],['cache','Package cache'],['settings','Registry settings']] : [])];
+  if (!navItems.some(([id]) => id === tab)) tab = 'overview';
+  main.innerHTML = `${heading('Workspace management.', 'A place for your profiles, packages, and API keys.', '<button type="button" class="button" data-action="logout">Sign out ↗</button>')}<div class="shell page-content management-layout"><aside class="management-sidebar"><h3>Workspace</h3>${identity.admin ? `<label class="visually-hidden" for="profile-select">Publisher profile</label><select id="profile-select"><option value="" ${!selectedProfile ? 'selected' : ''}>Select a publisher profile</option>${profiles.map(p => `<option value="${esc(p.id)}" ${p.id === selectedProfile ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>` : ''}<nav class="management-nav" aria-label="Workspace navigation">${navItems.map(([id,label]) => `<a href="/manage?tab=${id}" class="${tab === id ? 'active' : ''}">${label}</a>`).join('')}</nav><div class="profile-card"><div class="profile-avatar">${esc((profile?.name || 'Admin').slice(0,1).toUpperCase())}</div><strong>${esc(profile?.name || 'Workspace admin')}</strong><br><span>${identity.admin ? 'Administrator access' : 'Publisher profile'}</span></div></aside><section id="management-content">${loading()}</section></div>`;
+  const content = $('#management-content');
+  try {
+    if (tab === 'profiles') { renderProfiles(content); return; }
+    if (tab === 'settings') { renderSettings(content); return; }
+    if (tab === 'upstreams' || tab === 'cache') {
+      upstreamSources = await api('/api/upstreams',{},true);
+      if (generation !== routeGeneration) return;
+      if (tab === 'upstreams') renderUpstreams(content);
+      else { const cached = await api('/api/upstreams/cache',{},true); if (generation === routeGeneration) renderCache(content,cached); }
+      return;
+    }
+    if (!selectedProfile) { content.innerHTML = empty('Create your first publisher profile.','Each API key belongs to a profile. Create one to start publishing.','<a class="button primary" href="/manage?tab=profiles">Create a profile →</a>'); return; }
+    if (tab === 'keys') {
+      const keys = await api(`/api/profiles/${selectedProfile}/keys`,{},true); if (generation !== routeGeneration) return; renderKeys(content,keys);
+    } else {
+      const packages = await api(`/api/profiles/${selectedProfile}/packages`,{},true); if (generation !== routeGeneration) return;
+      if (tab === 'packages') renderOwnedPackages(content,packages);
+      else renderOverview(content,profile,packages);
+    }
+  } catch(e) { if (generation === routeGeneration) content.innerHTML = errorBox(e.message); }
+}
+function renderOverview(content, profile, packages) {
+  const totalVersions = packages.reduce((n,p) => n + (p.versions?.length || 0),0), totalDownloads = packages.reduce((n,p) => n + p.downloads,0);
+  content.innerHTML = `<div class="section-heading"><h2>Hello, ${esc(profile.name)}.</h2>${canManageKeys() ? '<a href="/manage?tab=keys">Manage credentials →</a>' : ''}</div><p class="section-subtitle">Here’s what’s happening in your package workspace.</p><div class="mini-stats">${[[packages.length,'Owned packages'],[totalVersions,'Published versions'],[totalDownloads,'Total downloads']].map(([value,label]) => `<div class="mini-stat"><strong>${num(value)}</strong><span>${label}</span></div>`).join('')}</div><div class="overview-note">◇ Your profile owns every package ID you publish. API keys can be scoped to a package prefix.</div>${canManageKeys() ? `<div class="panel"><h2>Publisher profile</h2><form data-form="rename-profile"><div class="field"><label for="profile-name">Display name</label><input id="profile-name" name="name" maxlength="80" value="${esc(profile.name)}" required><small>Shown as the package owner in the registry.</small></div><button class="button" type="submit">Save profile</button><div class="form-error" role="alert"></div></form></div>` : ''}<div class="panel"><h2>Ready to publish something new?</h2><p>Create a package using dotnet pack, then push it with your profile key.</p><a class="button primary" href="/publish">Publish a package →</a></div>`;
+}
+function renderProfiles(content) {
+  content.innerHTML = `<div class="section-heading"><h2>Publisher profiles</h2><span class="muted">${num(profiles.length)} profiles</span></div><div class="panel"><h2>Create a profile</h2><p>A profile owns packages and can have multiple independent API keys.</p><form data-form="create-profile"><div class="field"><label for="new-profile-name">Profile name</label><input id="new-profile-name" name="name" placeholder="e.g. Platform Team" maxlength="80" required></div><button class="button primary" type="submit">Create profile →</button><div class="form-error" role="alert"></div></form></div><div class="panel"><div class="table-wrap"><table class="version-table"><thead><tr><th>Profile</th><th>Packages</th><th>Created</th><th></th></tr></thead><tbody>${profiles.map(p => `<tr><td>${esc(p.name)}</td><td>${num(p.packageCount)}</td><td>${date(p.createdAt)}</td><td><button class="button small" data-action="select-profile" data-profile="${esc(p.id)}">Manage →</button></td></tr>`).join('') || '<tr><td colspan="4">No publisher profiles yet.</td></tr>'}</tbody></table></div></div>`;
+}
+function renderKeys(content, keys) {
+  const allowed = identity.admin ? Object.keys(scopeLabels) : identity.scopes;
+  content.innerHTML = `<div class="section-heading"><h2>API keys & credentials</h2><span class="muted">${keys.filter(k => !k.revokedAt && (!k.expiresAt || new Date(k.expiresAt) > new Date())).length} active keys</span></div><div class="panel"><h2>Create a new API key</h2><p>Give each application its own key. Limit its permissions, package prefix, and lifetime.</p><form data-form="create-key"><div class="form-grid"><div class="field"><label for="key-label">Key name</label><input id="key-label" name="label" maxlength="80" placeholder="e.g. Release pipeline" required></div><div class="field"><label for="key-duration">Expires in</label><select id="key-duration" name="duration"><option value="30">30 days</option><option value="7">7 days</option><option value="90">90 days</option><option value="0">No expiration</option></select><small>Child keys cannot outlive the current key.</small></div></div><div class="field"><label for="key-prefix">Package prefix <span class="muted">(optional)</span></label><input id="key-prefix" name="packagePrefix" maxlength="100" value="${esc(identity.packagePrefix || '')}" placeholder="e.g. Acme."><small>Only package IDs starting with this prefix. Leave empty to allow all owned packages.</small></div><span class="scope-description">Permissions</span><div class="check-list">${Object.entries(scopeLabels).filter(([scope]) => allowed.includes(scope)).map(([scope,label]) => `<label><input type="checkbox" name="scopes" value="${scope}" checked>${esc(label)}</label>`).join('')}</div><button class="button primary" type="submit">Create API key ↗</button><div class="form-error" role="alert"></div></form></div><div class="panel"><h2>Existing keys</h2><p>Full keys are never stored. Revocation takes effect on the next request.</p><div class="table-wrap"><table class="keys-table"><thead><tr><th>Credential</th><th>Access</th><th>Expiration</th><th>Status</th><th></th></tr></thead><tbody>${keys.map(k => { const expired = k.expiresAt && new Date(k.expiresAt) <= new Date(); return `<tr><td><strong>${esc(k.label)}</strong><br><code class="credential-hint">${esc(k.hint)}</code></td><td>${k.scopes.map(s => `<span class="pill">${esc(scopeLabels[s] || s)}</span>`).join('')}<br><span class="muted">${esc(k.packagePrefix || 'All owned packages')}</span></td><td>${date(k.expiresAt)}</td><td><span class="badge ${k.revokedAt || expired ? 'red' : 'green'}">${k.revokedAt ? 'Revoked' : expired ? 'Expired' : 'Active'}</span></td><td>${k.revokedAt ? '' : `<button class="button small danger" data-action="revoke-key" data-key="${esc(k.id)}">Revoke</button>`}</td></tr>`; }).join('') || '<tr><td colspan="5">No API keys yet. Create your first key above.</td></tr>'}</tbody></table></div></div>`;
+}
+function renderOwnedPackages(content, packages) {
+  content.innerHTML = `<div class="section-heading"><h2>My packages</h2><a href="/publish">Publish a package →</a></div><p class="section-subtitle">Manage visibility without breaking existing restores.</p>${packages.length ? packages.map(p => `<div class="panel"><div class="list-heading"><h2 class="account-table-title"><a href="/packages/${encodeURIComponent(p.id)}">${esc(p.id)}</a></h2><p>↓ ${num(p.downloads)} downloads</p></div><div class="table-wrap"><table class="version-table"><thead><tr><th>Version</th><th>Published</th><th>Visibility</th><th></th></tr></thead><tbody>${(p.versions || []).map(v => `<tr><td><code>${esc(v.version)}</code></td><td>${date(v.published)}</td><td><span class="badge ${v.listed ? 'green' : 'red'}">${v.listed ? 'Listed' : 'Unlisted'}</span></td><td>${canUnlist() ? `<button class="button small" data-action="listing" data-id="${esc(p.id)}" data-version="${esc(v.version)}" data-listed="${v.listed}">${v.listed ? 'Unlist' : 'Relist'}</button>` : ''}</td></tr>`).join('')}</tbody></table></div></div>`).join('') : empty('No packages yet.','Packages published with this profile’s keys will appear here.','<a class="button primary" href="/publish">Publish a package →</a>')}`;
+}
+function renderSettings(content) {
+  content.innerHTML = `<div class="section-heading"><h2>Registry settings</h2></div><div class="panel"><h2>Deployment configuration</h2><p>These settings are configured on the server. Storage credentials are supplied through deployment secrets.</p>${[['Public URL',identity.publicUrl],['Package feed',feed],['Storage provider',identity.storageProvider],['Database','PostgreSQL'],['MCP endpoint',`${location.origin}/mcp`],['Read access','Public'],['Write access','Profile API key'],['API key storage','SHA-256 digest only']].map(([label,value]) => `<div class="settings-row"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('')}</div><div class="panel"><h2>Storage credentials</h2><p>Set storage service credentials in your Docker deployment environment. Full storage secrets are never sent to the browser. See the project README for S3, Azure Blob, and Google Cloud Storage configuration.</p><p>Changing providers requires migrating existing blobs; the metadata database does not automatically move package files.</p></div>`;
+}
+function sourceInput(form) {
+  const data=new FormData(form);
+  const split=name => String(data.get(name)||'').split(/[\n,]/).map(s=>s.trim()).filter(Boolean);
+  return {name:data.get('name'),url:data.get('url'),priority:Number(data.get('priority')),enabled:data.has('enabled'),patterns:split('patterns'),excludes:split('excludes'),private:data.has('private'),allowedProfiles:data.getAll('allowedProfiles'),authType:data.get('authType'),username:data.get('username')||null,credentialEnv:data.get('credentialEnv')||null,allowHttp:data.has('allowHttp'),allowPrivateNetwork:data.has('allowPrivateNetwork'),timeoutSeconds:Number(data.get('timeoutSeconds')),metadataTtlSeconds:Number(data.get('metadataTtlSeconds')),staleOnError:data.has('staleOnError')};
+}
+function renderUpstreams(content,source=null) {
+  content.innerHTML=`<div class="section-heading"><h2>Upstream sources</h2><button class="button" data-action="source-preset">Add nuget.org ↗</button></div><p class="section-subtitle">One feed for your clients. Fetch missing packages from trusted registries.</p><div class="panel"><h2>${source ? 'Edit source' : 'Add a source'}</h2><form data-form="upstream" data-source="${esc(source?.id||'')}"><div class="form-grid"><div class="field"><label for="source-name">Source name</label><input id="source-name" name="name" required maxlength="80" value="${esc(source?.name||'')}" placeholder="e.g. nuget.org"></div><div class="field"><label for="source-priority">Priority</label><input id="source-priority" name="priority" type="number" min="0" max="10000" value="${source?.priority??100}" required><small>Lower numbers are tried first within the most specific routing rule.</small></div></div><div class="field"><label for="source-url">NuGet V3 service index URL</label><input id="source-url" name="url" type="url" required value="${esc(source?.url||'')}" placeholder="https://api.nuget.org/v3/index.json"></div><div class="form-grid"><div class="field"><label for="source-patterns">Include patterns</label><input id="source-patterns" name="patterns" required value="${esc((source?.patterns||['*']).join(', '))}"><small>Exact IDs or suffix wildcards, e.g. Acme.*, Partner.Core, *</small></div><div class="field"><label for="source-excludes">Exclude patterns</label><input id="source-excludes" name="excludes" value="${esc((source?.excludes||[]).join(', '))}" placeholder="e.g. Internal.*"></div></div><div class="form-grid"><div class="field"><label for="source-auth">Upstream authentication</label><select id="source-auth" name="authType">${[['none','No authentication'],['bearer','Bearer token'],['basic','Basic authentication']].map(([v,label])=>`<option value="${v}" ${source?.auth_type===v?'selected':''}>${label}</option>`).join('')}</select></div><div class="field"><label for="source-secret">Credential environment variable</label><input id="source-secret" name="credentialEnv" value="${esc(source?.credential_env||'')}" placeholder="UPSTREAM_COMPANY_TOKEN"><small>Reference a deployment secret. Full upstream secrets never reach this browser.</small></div></div><div class="field"><label for="source-user">Upstream username (Basic only)</label><input id="source-user" name="username" value="${esc(source?.username||'')}" autocomplete="off"></div><div class="form-grid"><div class="field"><label for="source-ttl">Metadata TTL (seconds)</label><input id="source-ttl" name="metadataTtlSeconds" type="number" min="1" max="86400" value="${source?.metadata_ttl_seconds??300}" required></div><div class="field"><label for="source-timeout">Request timeout (seconds)</label><input id="source-timeout" name="timeoutSeconds" type="number" min="1" max="30" value="${source?.timeout_seconds??15}" required></div></div><div class="check-list"><label><input name="enabled" type="checkbox" ${source?.enabled!==false?'checked':''}> Enabled</label><label><input name="staleOnError" type="checkbox" ${source?.stale_on_error!==false?'checked':''}> Use stale metadata on connection failures</label><label><input name="allowHttp" type="checkbox" ${source?.allow_http?'checked':''}> Allow HTTP (development)</label><label><input name="allowPrivateNetwork" type="checkbox" ${source?.allow_private_network?'checked':''}> Allow private network endpoints</label><label><input name="private" type="checkbox" ${source?.private?'checked':''}> Private source</label></div><p class="scope-description">Private source readers need package:read, a matching key prefix, and one of these profile grants. Administrators can read all sources.</p><div class="check-list">${profiles.map(p=>`<label><input name="allowedProfiles" type="checkbox" value="${esc(p.id)}" ${(source?.allowedProfiles||[]).includes(p.id)?'checked':''}>${esc(p.name)}</label>`).join('')||'<span class="muted">No profiles yet. A private source without grants is administrator-only.</span>'}</div><div class="inline-actions"><button type="submit" class="button primary">${source?'Save source':'Add source'} ↗</button><button type="button" class="button" data-action="source-test-form">Test connection</button>${source?'<button type="button" class="button" data-action="source-new">Cancel edit</button>':''}</div><div class="form-error" role="alert"></div></form></div><div class="panel"><h2>Configured sources</h2><p>Package IDs are pinned to the first matching source that contains them. Clear a source cache to reset those pins. Local package namespaces are never fetched from an upstream.</p><div class="table-wrap"><table class="version-table"><thead><tr><th>Source</th><th>Routing</th><th>Cached</th><th>Status</th><th></th></tr></thead><tbody>${upstreamSources.map(s=>`<tr><td><strong>${esc(s.name)}</strong><br><span class="muted">${esc(s.url)}</span></td><td>${esc(s.patterns.join(', '))}<br><span class="muted">Priority ${s.priority}${s.private?' · Private':''}</span></td><td>${num(s.cacheVersions)} versions<br><span class="muted">${num(Math.ceil(s.cacheBytes/1024))} KB</span></td><td><span class="badge ${s.enabled?'green':'red'}">${s.enabled?'Enabled':'Disabled'}</span></td><td><div class="inline-actions"><button class="button small" data-action="source-edit" data-id="${esc(s.id)}">Edit</button><button class="button small" data-action="source-test" data-id="${esc(s.id)}">Test</button><button class="button small" data-action="source-purge" data-id="${esc(s.id)}">Clear cache</button><button class="button small danger" data-action="source-delete" data-id="${esc(s.id)}">Remove</button></div></td></tr>`).join('')||'<tr><td colspan="5">No upstream sources configured. Add nuget.org or your own registry above.</td></tr>'}</tbody></table></div></div>`;
+}
+function renderCache(content,cached) {
+  content.innerHTML=`<div class="section-heading"><h2>Package cache</h2><a href="/manage?tab=upstreams">Manage sources →</a></div><div class="mini-stats">${[[upstreamSources.reduce((n,s)=>n+s.cacheVersions,0),'Cached versions'],[Math.ceil(upstreamSources.reduce((n,s)=>n+s.cacheBytes,0)/1024),'Storage used (KB)'],[upstreamSources.length,'Configured sources']].map(([n,label])=>`<div class="mini-stat"><strong>${num(n)}</strong><span>${label}</span></div>`).join('')}</div><div class="panel"><h2>Cached package archives</h2><p>Showing the latest 500 cached versions. Files are stored in the active provider. Private cache entries follow source profile permissions.</p><div class="table-wrap"><table class="version-table"><thead><tr><th>Package</th><th>Source</th><th>Size</th><th>Downloads</th><th>Cached</th></tr></thead><tbody>${cached.map(p=>`<tr><td><a href="/packages/${encodeURIComponent(p.id)}/${encodeURIComponent(p.version)}">${esc(p.id)}</a><br><code>${esc(p.version)}</code></td><td>${esc(p.source)} ${p.private?'<span class="badge">Private</span>':''}</td><td>${num(Math.ceil(p.size/1024))} KB</td><td>${num(p.downloads)}</td><td>${date(p.cachedAt)}</td></tr>`).join('')||'<tr><td colspan="5">No archives cached yet. Restore a package from a configured upstream to populate this cache.</td></tr>'}</tbody></table></div></div>`;
+}
+async function route() {
+  const generation = ++routeGeneration;
+  const path = location.pathname;
+  document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active',path.startsWith(`/${a.dataset.nav}`)));
+  try {
+    if (path === '/') await home(generation);
+    else if (path === '/packages') await searchPage(generation);
+    else if (path.startsWith('/packages/')) await detailPage(generation);
+    else if (path === '/manage') await managementPage(generation);
+    else if (path === '/publish') publishPage();
+    else if (path === '/docs') docsPage();
+    else main.innerHTML = `<div class="shell page-content">${empty('Page not found.','Return to your registry to keep exploring.','<a class="button" href="/">Back to home</a>')}</div>`;
+    if (generation === routeGeneration && location.hash) document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView();
+  } catch(e) { if (generation === routeGeneration) main.innerHTML = `<div class="shell page-content">${errorBox(e.message)}</div>`; }
+}
+function navigate(url) { history.pushState({},'',url); window.scrollTo(0,0); route(); }
+document.addEventListener('click',async event => {
+  const action = event.target.closest('[data-action]');
+  if (action) {
+    const name = action.dataset.action; action.disabled = true;
+    try {
+      if (name === 'copy-feed') { await navigator.clipboard.writeText(feed); toast('Package source copied.'); }
+      if (name === 'copy-secret') { await navigator.clipboard.writeText(generatedKey); toast('API key copied.'); }
+      if (name === 'close-secret') { generatedKey='';$('#new-secret').textContent='';$('#key-dialog').close(); }
+      if (name === 'logout') { currentKey='';identity=null;selectedProfile='';profiles=[];navigate('/manage'); }
+      if (name === 'select-profile') { selectedProfile=action.dataset.profile;navigate('/manage'); }
+      if (name === 'source-edit') { renderUpstreams($('#management-content'),upstreamSources.find(s=>s.id===action.dataset.id));window.scrollTo(0,0); }
+      if (name === 'source-new') renderUpstreams($('#management-content'));
+      if (name === 'source-preset') {renderUpstreams($('#management-content'));$('#source-name').value='nuget.org';$('#source-url').value='https://api.nuget.org/v3/index.json';}
+      if (name === 'source-test-form') {
+        const form=action.closest('form');$('.form-error',form).textContent='';
+        try {await api('/api/upstreams/test',{method:'POST',body:sourceInput(form)},true);toast('Connection succeeded. NuGet V3 resources found.');}
+        catch(e) {$('.form-error',form).textContent=e.message;}
+      }
+      if (name === 'source-test') {await api(`/api/upstreams/${action.dataset.id}/test`,{method:'POST'},true);toast('Connection succeeded.');}
+      if (name === 'source-purge') {if (!confirm('Clear this source’s cached archives and metadata? Uncached restores will need the upstream again.')) return;const result=await api(`/api/upstreams/${action.dataset.id}/cache`,{method:'DELETE'},true);toast(`Cleared ${result.clearedVersions} versions.${result.storageCleanupFailures?' Some storage files could not be removed.':''}`);route();}
+      if (name === 'source-delete') {if (!confirm('Remove this upstream source? Clear its cache first if it contains packages.')) return;await api(`/api/upstreams/${action.dataset.id}`,{method:'DELETE'},true);toast('Source removed.');route();}
+      if (name === 'download-private') {
+        event.preventDefault();const path=new URL(action.dataset.url).pathname;
+        const response=await fetch(path,{headers:{Authorization:`Bearer ${currentKey}`}});
+        if (!response.ok) {const body=await response.json().catch(()=>({}));throw new Error(body.error||'Download failed.');}
+        const url=URL.createObjectURL(await response.blob());const link=document.createElement('a');link.href=url;link.download=action.dataset.filename;link.click();setTimeout(()=>URL.revokeObjectURL(url),30000);toast('Package downloaded.');
+      }
+      if (name === 'home-tab') {
+        document.querySelectorAll('[data-action="home-tab"]').forEach(b => b.classList.toggle('active',b === action));
+        const generation = routeGeneration, sort = action.dataset.sort;
+        $('#home-packages').innerHTML=loading();
+        const result=await api(`/v3/search?sort=${sort}&take=5&semVerLevel=2.0.0`);
+        if (generation === routeGeneration && $('[data-action="home-tab"].active')?.dataset.sort === sort) $('#home-packages').innerHTML=result.data.length ? packageRows(result.data) : empty('Your registry starts here.','Publish your first package to get started.','<a class="button primary" href="/publish">Publish a package →</a>');
+      }
+      if (name === 'revoke-key') {
+        if (!confirm('Revoke this API key? Applications using it will lose access.')) return;
+        await api(`/api/profiles/${selectedProfile}/keys/${action.dataset.key}`,{method:'DELETE'},true);
+        if (action.dataset.key === identity.keyId) { currentKey='';identity=null; }
+        toast('API key revoked.');route();
+      }
+      if (name === 'listing') {
+        const listed = action.dataset.listed === 'true';
+        await api(`/api/v2/package/${encodeURIComponent(action.dataset.id)}/${encodeURIComponent(action.dataset.version)}`,{method:listed ? 'DELETE' : 'POST'},true);
+        toast(listed ? 'Version unlisted. Existing restores still work.' : 'Version is listed again.');route();
+      }
+    } catch(e) { toast(e.message); } finally { action.disabled=false; }
+    return;
+  }
+  const anchor = event.target.closest('a[href]');
+  if (!anchor || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || anchor.target || anchor.hasAttribute('download')) return;
+  const url = new URL(anchor.href);
+  if (url.origin === location.origin && !url.pathname.startsWith('/v3/') && !url.pathname.startsWith('/api/')) {
+    if (url.pathname === location.pathname && url.search === location.search && url.hash) return;
+    event.preventDefault();navigate(url.pathname+url.search+url.hash);
+  }
+});
+document.addEventListener('submit',async event => {
+  const form = event.target.closest('[data-form]'); if (!form) return;event.preventDefault();
+  const data = new FormData(form), type=form.dataset.form, button=$('button[type=submit]',form), errors=$('.form-error',form);
+  if (errors) errors.textContent='';button.disabled=true;
+  try {
+    if (type === 'search') { navigate(`/packages?${new URLSearchParams({q:data.get('q')})}`);return; }
+    if (type === 'login') {
+      currentKey=String(data.get('key')).trim();
+      try { identity=await api('/api/me',{},true); } catch(e) { currentKey='';throw e; }
+      form.reset();await route();
+    }
+    if (type === 'create-profile') { const profile=await api('/api/profiles',{method:'POST',body:{name:data.get('name')}},true);selectedProfile=profile.id;toast('Publisher profile created.');navigate('/manage?tab=keys'); }
+    if (type === 'rename-profile') { const profile=await api(`/api/profiles/${selectedProfile}`,{method:'PATCH',body:{name:data.get('name')}},true);if (!identity.admin) identity.name=profile.name;toast('Profile saved.');route(); }
+    if (type === 'create-key') {
+      const duration=Number(data.get('duration'));let expiry=duration ? new Date(Date.now()+duration*86400000).toISOString() : null;
+      if (!identity.admin && identity.expiresAt && (!expiry || new Date(expiry) > new Date(identity.expiresAt))) expiry=identity.expiresAt;
+      const result=await api(`/api/profiles/${selectedProfile}/keys`,{method:'POST',body:{label:data.get('label'),scopes:data.getAll('scopes'),packagePrefix:data.get('packagePrefix'),expiresAt:expiry}},true);
+      generatedKey=result.key;$('#new-secret').textContent=generatedKey;$('#key-dialog').showModal();await route();
+    }
+    if (type === 'upstream') {const id=form.dataset.source;await api(id?`/api/upstreams/${id}`:'/api/upstreams',{method:id?'PUT':'POST',body:sourceInput(form)},true);toast('Upstream source saved.');route();}
+    if (type === 'publish') {
+      const file=data.get('package');if (!file.name.toLowerCase().endsWith('.nupkg')) throw new Error('Select a .nupkg package.');
+      const payload=new FormData();payload.append('package',file,file.name);
+      const result=await api('/api/v2/package',{method:'PUT',headers:{'X-NuGet-ApiKey':String(data.get('key')).trim()},body:payload});
+      $('#upload-result').innerHTML=`<div class="upload-result">Published ${esc(result.id)} ${esc(result.version)}. <a href="/packages/${encodeURIComponent(result.id)}">View package →</a></div>`;form.reset();
+    }
+  } catch(e) { if (errors && errors.isConnected) errors.textContent=e.message;else toast(e.message); } finally { button.disabled=false; }
+});
+document.addEventListener('change',event => {
+  if (event.target.id === 'source-auth' && event.target.value !== 'none') {const form=event.target.closest('form');$('input[name=private]',form).checked=true;}
+  if (event.target.id === 'prerelease-filter' || event.target.id === 'sort-filter') {
+    const params=new URLSearchParams(location.search);params.set('prerelease',String($('#prerelease-filter').checked));params.set('sort',$('#sort-filter').value);params.delete('skip');navigate(`/packages?${params}`);
+  }
+  if (event.target.id === 'profile-select') { selectedProfile=event.target.value;route(); }
+});
+$('#key-dialog').addEventListener('close',() => { generatedKey='';$('#new-secret').textContent=''; });
+window.addEventListener('popstate',route);
+route();

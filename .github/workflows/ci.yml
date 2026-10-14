@@ -1,0 +1,43 @@
+name: Docker checks
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build test image
+        run: docker compose -f compose.test.yml build test
+      - name: Format check
+        run: docker compose -f compose.test.yml run --rm --no-deps test cargo fmt --all -- --check
+      - name: Clippy
+        run: docker compose -f compose.test.yml run --rm --no-deps test cargo clippy --locked --all-features --all-targets -- -D warnings
+      - name: PostgreSQL, filesystem and S3 integration
+        run: docker compose -f compose.test.yml run --rm test
+      - name: Real dotnet client
+        run: docker compose -f compose.test.yml --profile e2e up --build --abort-on-container-exit --exit-code-from e2e e2e
+      - name: Browser management and mobile checks
+        run: docker compose -f compose.test.yml --profile ui run --rm --build ui
+      - name: Stop test stack
+        if: always()
+        run: docker compose -f compose.test.yml --profile e2e --profile ui down
+  performance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: HTTP performance regression checks
+        env:
+          PERF_PACKAGES: '10000'
+          PERF_REQUESTS: '64'
+          PERF_CONCURRENCY: '1,8'
+        run: docker compose -f compose.test.yml --profile performance run --rm --build performance
+      - name: Upload performance reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: http-performance-results
+          path: test-results/performance/
+          if-no-files-found: warn
+      - name: Stop performance stack
+        if: always()
+        run: docker compose -f compose.test.yml --profile performance down

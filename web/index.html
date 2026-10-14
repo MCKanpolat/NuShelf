@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#103a61">
+  <meta name="description" content="NuShelf — your self-hosted NuGet package registry. Discover, publish and manage .NET packages.">
+  <title>NuShelf · Your packages, at home.</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="shell header-inner">
+      <a class="brand" href="/" aria-label="NuShelf home"><span class="brand-mark" aria-hidden="true">n</span><span>NuShelf<span class="brand-dot">.</span></span></a>
+      <nav aria-label="Main navigation"><a href="/packages" data-nav="packages">Packages</a><a href="/publish" data-nav="publish">Publish</a><a href="/docs" data-nav="docs">Documentation</a></nav>
+      <a class="workspace-link" href="/manage"><span class="workspace-icon" aria-hidden="true">⌘</span> Manage workspace <span aria-hidden="true">↗</span></a>
+    </div>
+  </header>
+  <main id="main" tabindex="-1"></main>
+  <footer class="site-footer"><div class="shell footer-inner"><a class="brand small" href="/"><span class="brand-mark" aria-hidden="true">n</span>NuShelf.</a><span>A home for your .NET packages.</span><div><a href="/docs">Docs</a><a href="/v3/index.json">NuGet feed</a><a href="https://learn.microsoft.com/en-us/nuget/" target="_blank" rel="noopener">About NuGet ↗</a><span class="footer-version">v0.1.0</span></div></div></footer>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="key-dialog" aria-labelledby="key-dialog-title"><div class="dialog-heading"><span class="eyebrow">CREDENTIAL CREATED</span><h2 id="key-dialog-title">Keep this key somewhere safe.</h2><p>You’ll only see it once. Copy it to your password manager before closing this window.</p></div><div class="secret-box"><code id="new-secret"></code><button type="button" data-action="copy-secret">Copy</button></div><button class="button primary" type="button" data-action="close-secret">I’ve saved my key</button></dialog>
+</body>
+</html>

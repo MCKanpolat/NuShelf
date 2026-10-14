@@ -1,0 +1,96 @@
+name: nushelf-test
+services:
+  postgres:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: nushelf_test
+      POSTGRES_USER: test
+      POSTGRES_PASSWORD: test-only-password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U test -d nushelf_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  minio:
+    build: {context: ., dockerfile: docker/minio.Dockerfile, target: minio}
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: test-user
+      MINIO_ROOT_PASSWORD: test-only-password
+  minio-init:
+    build: {context: ., dockerfile: docker/minio.Dockerfile, target: mc}
+    depends_on: [minio]
+    entrypoint: /bin/sh
+    command: ["-c", "until mc alias set local http://minio:9000 test-user test-only-password; do sleep 1; done; mc mb --ignore-existing local/nushelf-test"]
+  test:
+    build: {context: ., target: dev}
+    environment:
+      TEST_DATABASE_URL: postgres://test:test-only-password@postgres:5432/nushelf_test
+      TEST_S3_ENDPOINT: http://minio:9000
+      UPSTREAM_TEST_TOKEN: upstream-fixture-secret
+    depends_on:
+      postgres: {condition: service_healthy}
+      minio-init: {condition: service_completed_successfully}
+    volumes: ["cargo-registry:/usr/local/cargo/registry", "cargo-target:/app/target"]
+  app:
+    build: .
+    profiles: ["e2e", "ui"]
+    environment:
+      DATABASE_URL: postgres://test:test-only-password@postgres:5432/nushelf_test
+      PUBLIC_URL: http://registry:5000
+      ADMIN_API_KEY: test-only-admin-key-at-least-32-characters
+      STORAGE_PROVIDER: s3
+      AWS_BUCKET: nushelf-test
+      AWS_REGION: us-east-1
+      AWS_ENDPOINT: http://minio:9000
+      AWS_ACCESS_KEY_ID: test-user
+      AWS_SECRET_ACCESS_KEY: test-only-password
+      AWS_ALLOW_HTTP: 'true'
+    depends_on:
+      postgres: {condition: service_healthy}
+      minio-init: {condition: service_completed_successfully}
+    networks:
+      default:
+        aliases: [registry]
+  performance:
+    build: {context: ., target: dev}
+    profiles: ["performance"]
+    command: ["cargo", "test", "--release", "--locked", "--features", "performance-tests", "--test", "performance", "--", "--nocapture"]
+    environment:
+      TEST_DATABASE_URL: postgres://test:test-only-password@postgres:5432/nushelf_test
+      PERF_PACKAGES: ${PERF_PACKAGES:-50000}
+      PERF_REQUESTS: ${PERF_REQUESTS:-100}
+      PERF_WARMUPS: ${PERF_WARMUPS:-3}
+      PERF_CONCURRENCY: ${PERF_CONCURRENCY:-1,8,32}
+      PERF_DB_CONNECTIONS: ${PERF_DB_CONNECTIONS:-20}
+      PERF_BUDGET_MULTIPLIER: ${PERF_BUDGET_MULTIPLIER:-1}
+      PERF_REPORT_DIR: /results/performance
+    depends_on:
+      postgres: {condition: service_healthy}
+    volumes: ["cargo-registry:/usr/local/cargo/registry", "cargo-target:/app/target", "./test-results:/results"]
+  e2e:
+    image: mcr.microsoft.com/dotnet/sdk:8.0
+    profiles: ["e2e"]
+    volumes: ["./tests/e2e:/tests:ro", "./test-results:/artifacts"]
+    entrypoint: ["bash", "/tests/nuget-client.sh"]
+    depends_on:
+      app: {condition: service_healthy}
+      proxy-origin: {condition: service_started}
+  proxy-origin:
+    image: python:3.12-slim
+    profiles: ["e2e"]
+    volumes: ["./tests/e2e/proxy-origin.py:/origin.py:ro", "./test-results/proxy-fixtures:/fixtures"]
+    command: ["python", "/origin.py"]
+  ui:
+    build: {context: ., dockerfile: docker/ui.Dockerfile}
+    profiles: ["ui"]
+    init: true
+    shm_size: 1gb
+    environment:
+      APP_URL: http://registry:5000
+    volumes: ["./test-results:/results"]
+    depends_on:
+      app: {condition: service_healthy}
+volumes:
+  cargo-registry:
+  cargo-target:

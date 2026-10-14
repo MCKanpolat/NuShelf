@@ -1,0 +1,7 @@
+{
+  "name": "nushelf-ui-tests",
+  "private": true,
+  "type": "module",
+  "dependencies": { "@playwright/test": "1.64.0" },
+  "scripts": { "test": "playwright test" }
+}
