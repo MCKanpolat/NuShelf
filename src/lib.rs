@@ -16,16 +16,18 @@ pub mod upstream;
 pub mod version;
 
 use axum::{
-    Router,
+    Json, Router,
     extract::{DefaultBodyLimit, State},
     http::{HeaderValue, StatusCode, header},
     response::{Html, IntoResponse},
     routing::{get, post, put},
 };
 use config::Config;
+use futures_util::StreamExt;
 use object_store::ObjectStore;
+use serde_json::{Value, json};
 use sqlx::PgPool;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tower_http::{
     compression::CompressionLayer, set_header::SetResponseHeaderLayer, trace::TraceLayer,
 };
@@ -158,9 +160,56 @@ async fn js() -> impl IntoResponse {
         include_str!("../web/app.js"),
     )
 }
-async fn ready(State(state): State<AppState>) -> StatusCode {
-    match sqlx::query("SELECT 1").execute(&state.db).await {
-        Ok(_) => StatusCode::OK,
-        Err(_) => StatusCode::SERVICE_UNAVAILABLE,
+const READY_TIMEOUT: Duration = Duration::from_secs(3);
+const STORAGE_PROBE_PREFIX: &str = ".nushelf-readiness-probe";
+
+async fn ready(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
+    let (database, storage) = tokio::join!(database_ready(&state), storage_ready(&state));
+    let status = if database && storage {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    let check = |ok: bool| if ok { "ok" } else { "unavailable" };
+    (
+        status,
+        Json(json!({"checks":{"database":check(database),"storage":check(storage)}})),
+    )
+}
+async fn database_ready(state: &AppState) -> bool {
+    match tokio::time::timeout(READY_TIMEOUT, sqlx::query("SELECT 1").execute(&state.db)).await {
+        Ok(Ok(_)) => true,
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "readiness: database check failed");
+            false
+        }
+        Err(_) => {
+            tracing::warn!("readiness: database check timed out");
+            false
+        }
+    }
+}
+/// Lists a prefix that never holds packages. A missing bucket or container,
+/// rejected credentials or an unreachable endpoint all fail the listing, while
+/// an empty result proves the store is reachable and readable.
+async fn storage_ready(state: &AppState) -> bool {
+    let prefix = object_store::path::Path::from(STORAGE_PROBE_PREFIX);
+    let probe = async {
+        let mut listing = state.storage.list(Some(&prefix));
+        match listing.next().await {
+            None | Some(Ok(_)) => Ok(()),
+            Some(Err(e)) => Err(e),
+        }
+    };
+    match tokio::time::timeout(READY_TIMEOUT, probe).await {
+        Ok(Ok(())) => true,
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "readiness: storage check failed");
+            false
+        }
+        Err(_) => {
+            tracing::warn!("readiness: storage check timed out");
+            false
+        }
     }
 }

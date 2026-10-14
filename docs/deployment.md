@@ -46,7 +46,9 @@ Migrations run automatically on startup. The `postgres-data` and `packages` volu
 - Liveness: `GET /health/live`
 - Readiness: `GET /health/ready`
 
-Set `PUBLIC_URL` to the external origin for a reverse proxy deployment. NuGet document links are built from that value rather than request headers. Readiness checks PostgreSQL only.
+Set `PUBLIC_URL` to the external origin for a reverse proxy deployment. NuGet document links are built from that value rather than request headers.
+
+Readiness returns `200` when PostgreSQL answers and the package store can be listed, and `503` otherwise, each within three seconds. The body names the failing check, for example `{"checks":{"database":"ok","storage":"unavailable"}}`; the underlying error is logged rather than returned. A missing bucket or container fails the storage check. S3 needs `s3:ListBucket`, which cache maintenance already uses.
 
 ## First profile and API key
 

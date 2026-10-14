@@ -117,6 +117,76 @@ async fn postgres_registry_local_and_s3() {
         .await;
         assert_eq!(index["version"], "3.0.0");
         assert_eq!(index["resources"].as_array().unwrap().len(), 6);
+        let readiness = value(
+            client
+                .get(format!("{base}/health/ready"))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(
+            readiness,
+            json!({"checks":{"database":"ok","storage":"ok"}})
+        );
+        if provider == "s3" {
+            // A bucket that does not exist must fail readiness, not look like an empty store.
+            let missing_bucket: Arc<dyn object_store::ObjectStore> = Arc::new(
+                object_store::aws::AmazonS3Builder::new()
+                    .with_bucket_name(format!("nushelf-missing-{}", Uuid::new_v4().simple()))
+                    .with_region("us-east-1")
+                    .with_access_key_id("test-user")
+                    .with_secret_access_key("test-only-password")
+                    .with_endpoint(std::env::var("TEST_S3_ENDPOINT").expect("TEST_S3_ENDPOINT"))
+                    .with_allow_http(true)
+                    .build()
+                    .unwrap(),
+            );
+            let broken_listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
+            let broken_base = format!(
+                "http://127.0.0.1:{}",
+                broken_listener.local_addr().unwrap().port()
+            );
+            let broken_config = Config {
+                database_url: db_url.to_string(),
+                public_url: broken_base.clone(),
+                bind: broken_listener.local_addr().unwrap(),
+                admin_key: ADMIN.into(),
+                max_package_bytes: 2 * 1024 * 1024,
+                database_connections: 8,
+                storage_provider: "s3".into(),
+                storage_path: dir.path().to_str().unwrap().into(),
+            };
+            let broken = AppState {
+                db: db.clone(),
+                storage: missing_bucket,
+                config: Arc::new(broken_config),
+                upload_slots: Arc::new(tokio::sync::Semaphore::new(1)),
+                feeds: Arc::default(),
+                feed: None,
+                read_prefix: String::new(),
+            };
+            let broken_server = tokio::spawn(async move {
+                axum::serve(broken_listener, nushelf::router(broken))
+                    .await
+                    .unwrap();
+            });
+            let unready = value(
+                client
+                    .get(format!("{broken_base}/health/ready"))
+                    .send()
+                    .await
+                    .unwrap(),
+                StatusCode::SERVICE_UNAVAILABLE,
+            )
+            .await;
+            assert_eq!(
+                unready,
+                json!({"checks":{"database":"ok","storage":"unavailable"}})
+            );
+            broken_server.abort();
+        }
         assert_eq!(
             client
                 .get(format!("{base}/manage"))
