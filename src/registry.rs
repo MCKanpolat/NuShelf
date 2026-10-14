@@ -84,16 +84,20 @@ pub fn catalog(state: &AppState, p: &PackageRow) -> Value {
 fn embedded_leaf(state: &AppState, p: &PackageRow) -> Value {
     json!({"@id":format!("{}/v3/registration/{}/{}.json",state.config.public_url,p.package_id,p.version),"catalogEntry":catalog(state,p),"packageContent":content_url(state,p)})
 }
-pub async fn service_index(State(state): State<AppState>) -> Json<Value> {
+pub async fn service_index(State(state): State<AppState>) -> ApiResult<Json<Value>> {
     let base = &state.config.public_url;
-    Json(json!({"version":"3.0.0","resources":[
+    let mut index = json!({"version":"3.0.0","resources":[
         {"@id":format!("{base}/v3/flatcontainer/"),"@type":"PackageBaseAddress/3.0.0"},
         {"@id":format!("{base}/v3/registration/"),"@type":"RegistrationsBaseUrl/3.6.0"},
         {"@id":format!("{base}/v3/search"),"@type":"SearchQueryService/3.5.0"},
         {"@id":format!("{base}/v3/autocomplete"),"@type":"SearchAutocompleteService/3.5.0"},
         {"@id":format!("{base}/api/v2/package"),"@type":"PackagePublish/2.0.0"},
         {"@id":format!("{base}/packages/{{id}}/{{version}}"),"@type":"PackageDetailsUriTemplate/5.1.0"}
-    ]}))
+    ]});
+    if crate::audit::available(&state).await? {
+        index["resources"].as_array_mut().unwrap().push(json!({"@id":format!("{base}/v3/vulnerabilities/index.json"),"@type":"VulnerabilityInfo/6.7.0"}));
+    }
+    Ok(Json(index))
 }
 pub async fn push(State(state): State<AppState>, request: Request) -> ApiResult<Response> {
     let identity = auth::authenticate(&state, request.headers()).await?;
@@ -566,6 +570,7 @@ pub async fn details_value(state: &AppState, id: &str) -> ApiResult<Value> {
     result["owner"] = json!(latest.owner_name);
     result["totalDownloads"] = json!(latest.total_downloads);
     result["versions"] = json!(rows.iter().rev().map(|p| json!({"version":p.display_version,"normalizedVersion":p.version,"listed":p.listed,"prerelease":p.prerelease,"published":p.published_at,"downloads":p.downloads,"size":p.size,"dependencies":p.dependencies,"downloadUrl":content_url(state,p)})).collect::<Vec<_>>());
+    crate::audit::decorate(state, &mut result).await?;
     Ok(result)
 }
 pub async fn details(

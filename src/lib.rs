@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod auth;
 pub mod config;
 pub mod error;
@@ -47,6 +48,12 @@ pub fn router(state: AppState) -> Router {
             limit_uploads,
         ));
     Router::new()
+        .route("/v3/vulnerabilities/index.json",get(audit::index))
+        .route("/v3/vulnerabilities/{file}",get(audit::page))
+        .route("/api/audit",get(audit::status).patch(audit::settings))
+        .route("/api/audit/sync",post(audit::sync))
+        .route("/api/audit/import",post(audit::import).layer(DefaultBodyLimit::max(16*1024*1024)))
+        .route("/api/audit/packages/{id}",get(audit::package))
         .route("/feeds/{name}/{*path}",axum::routing::any(feeds::endpoint))
         .route("/api/feeds",get(feeds::list).post(feeds::create))
         .route("/api/feeds/{id}",axum::routing::patch(feeds::update))

@@ -261,6 +261,7 @@ pub async fn endpoint(
             .strip_prefix("v3/flatcontainer/")
             .or_else(|| path.strip_prefix("v3/registration/"))
             .or_else(|| path.strip_prefix("api/packages/"))
+            .or_else(|| path.strip_prefix("api/audit/packages/"))
         {
             who.package(&crate::version::package_id(
                 id.split('/').next().unwrap_or_default(),

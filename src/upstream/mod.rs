@@ -215,6 +215,7 @@ pub async fn details_value(state: &AppState, reader: &Reader, id: &str) -> ApiRe
         let v=NuGetVersion::parse(e["version"].as_str().unwrap()).unwrap();let item=find(&v.normalized);
         json!({"version":v.display,"normalizedVersion":v.normalized,"listed":e["listed"],"prerelease":v.prerelease,"published":e["published"],"downloads":item.map(|c|c.downloads).unwrap_or(0),"size":item.map(|c|c.size),"cached":item.is_some(),"dependencies":e["dependencyGroups"].as_array().cloned().unwrap_or_default(),"downloadUrl":cache::content(state,&id,&v.normalized)})
     }).collect::<Vec<_>>());
+    crate::audit::decorate(state, &mut result).await?;
     Ok(result)
 }
 pub async fn details(

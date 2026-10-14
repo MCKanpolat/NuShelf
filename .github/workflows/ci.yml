@@ -15,6 +15,8 @@ jobs:
         run: docker compose -f compose.test.yml run --rm test
       - name: Real dotnet client
         run: docker compose -f compose.test.yml --profile e2e up --build --abort-on-container-exit --exit-code-from e2e e2e
+      - name: Private feed and NuGet Audit client
+        run: docker compose -f compose.test.yml --profile e2e run --rm --entrypoint bash e2e /tests/audit-client.sh
       - name: Browser management and mobile checks
         run: docker compose -f compose.test.yml --profile ui run --rm --build ui
       - name: Stop test stack

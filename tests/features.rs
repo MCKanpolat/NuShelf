@@ -327,6 +327,114 @@ async fn named_feeds_isolate_packages_storage_search_and_permissions() {
                 .status(),
             StatusCode::OK
         );
+        let index =
+            json_response(c.get(format!("{base}/v3/index.json")).send().await.unwrap()).await;
+        assert!(
+            !index["resources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["@type"] == "VulnerabilityInfo/6.7.0")
+        );
+        let data = json!({"team.core":[{"severity":2,"versions":"[1.0.0,2.0.0)","url":"https://github.com/advisories/GHSA-example"}]});
+        assert_eq!(
+            c.post(format!("{base}/api/audit/import"))
+                .json(&data)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let imported = json_response(
+            c.post(format!("{base}/api/audit/import"))
+                .bearer_auth(ADMIN)
+                .json(&data)
+                .send()
+                .await
+                .unwrap(),
+        )
+        .await;
+        let hash = imported["hash"].as_str().unwrap();
+        let index = json_response(
+            c.get(format!("{base}/feeds/beta/v3/index.json"))
+                .send()
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(
+            index["resources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["@type"] == "VulnerabilityInfo/6.7.0")
+        );
+        let index = json_response(
+            c.get(format!("{base}/feeds/beta/v3/vulnerabilities/index.json"))
+                .send()
+                .await
+                .unwrap(),
+        )
+        .await;
+        let page = index[0]["@id"].as_str().unwrap();
+        assert!(page.starts_with(&format!("{base}/feeds/beta/")));
+        assert_eq!(json_response(c.get(page).send().await.unwrap()).await, data);
+        let details = json_response(
+            c.get(format!("{base}/feeds/beta/api/packages/team.core"))
+                .send()
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(details["versions"][0]["vulnerabilities"][0]["severity"], 2);
+        assert_eq!(
+            c.get(format!("{feed}/v3/vulnerabilities/index.json"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            c.post(format!("{base}/api/audit/import"))
+                .bearer_auth(ADMIN)
+                .json(&json!({"bad":[{"severity":9}]}))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            json_response(
+                c.get(format!("{base}/v3/vulnerabilities/{hash}.json"))
+                    .send()
+                    .await
+                    .unwrap()
+            )
+            .await,
+            data
+        );
+        json_response(
+            c.post(format!("{base}/api/audit/import"))
+                .bearer_auth(ADMIN)
+                .json(&json!([]))
+                .send()
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(
+            json_response(
+                c.get(format!("{base}/v3/vulnerabilities/{hash}.json"))
+                    .send()
+                    .await
+                    .unwrap()
+            )
+            .await,
+            data
+        );
         server.abort();
         db.close().await;
         sqlx::query(&format!("DROP DATABASE {database} WITH (FORCE)"))
