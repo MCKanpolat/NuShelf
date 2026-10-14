@@ -48,7 +48,9 @@ pub fn value(input: Input) -> ApiResult<Value> {
     }
     if let Some(alt) = input.alternate_package {
         package_id(&alt.id)?;
-        if let Some(range) = &alt.range && range != "*" {
+        if let Some(range) = &alt.range
+            && range != "*"
+        {
             crate::audit::validate_range(range)?;
         }
         result["alternatePackage"] =

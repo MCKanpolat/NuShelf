@@ -52,11 +52,6 @@ pub async fn record(State(state): State<AppState>, request: Request, next: Next)
         return next.run(request).await;
     }
     let admin = auth::is_admin(&state, request.headers());
-    let who = if admin {
-        None
-    } else {
-        auth::authenticate(&state, request.headers()).await.ok()
-    };
     let feed = if let Some(name) = path
         .strip_prefix("/feeds/")
         .and_then(|p| p.split('/').next())
@@ -71,6 +66,15 @@ pub async fn record(State(state): State<AppState>, request: Request, next: Next)
         }
     } else {
         None
+    };
+    let mut auth_state = state.clone();
+    auth_state.feed = feed;
+    let who = if admin {
+        None
+    } else {
+        auth::authenticate(&auth_state, request.headers())
+            .await
+            .ok()
     };
     let id = Uuid::new_v4();
     let event_type = kind(&method, &path);

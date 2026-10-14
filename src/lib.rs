@@ -11,6 +11,7 @@ pub mod mcp;
 pub mod package;
 pub mod registry;
 pub mod storage;
+pub mod trusted;
 pub mod upstream;
 pub mod version;
 
@@ -52,6 +53,9 @@ pub fn router(state: AppState) -> Router {
             limit_uploads,
         ));
     Router::new()
+        .route("/api/trusted-publishing",get(trusted::list).post(trusted::create))
+        .route("/api/trusted-publishing/exchange",post(trusted::exchange))
+        .route("/api/trusted-publishing/{id}",axum::routing::delete(trusted::disable))
         .route("/api/events",get(events::list))
         .route("/api/webhooks",get(events::hooks).post(events::create))
         .route("/api/webhooks/deliveries",get(events::deliveries))

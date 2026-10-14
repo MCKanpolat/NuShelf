@@ -263,7 +263,9 @@ pub async fn endpoint(
             || request.headers().contains_key("x-nuget-apikey"))
         && !auth::is_admin(&state, request.headers())
     {
-        let who = auth::authenticate(&state, request.headers()).await?;
+        let mut auth_state = state.clone();
+        auth_state.feed = Some(feed.id);
+        let who = auth::authenticate(&auth_state, request.headers()).await?;
         let role: Option<String> = sqlx::query_scalar(
             "SELECT role FROM public.feed_members WHERE feed_id=$1 AND profile_id=$2",
         )

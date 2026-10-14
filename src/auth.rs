@@ -33,6 +33,8 @@ pub struct Identity {
     pub scopes: Vec<String>,
     pub package_prefix: String,
     pub expires_at: Option<DateTime<Utc>>,
+    pub bound_feed: bool,
+    pub feed_id: Option<Uuid>,
 }
 impl Identity {
     pub fn require(&self, scope: &str) -> ApiResult<()> {
@@ -79,8 +81,14 @@ pub async fn authenticate(state: &AppState, headers: &HeaderMap) -> ApiResult<Id
     if key.len() > 200 {
         return Err(ApiError::unauthorized());
     }
-    sqlx::query_as::<_, Identity>("SELECT id, profile_id, scopes, package_prefix, expires_at FROM api_keys WHERE key_hash=$1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())")
-        .bind(hash_key(&key)).fetch_optional(&state.db).await?.ok_or_else(ApiError::unauthorized)
+    let who=sqlx::query_as::<_, Identity>("SELECT id, profile_id, scopes, package_prefix, expires_at,bound_feed,feed_id FROM public.api_keys k WHERE key_hash=$1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now()) AND (trusted_publisher_id IS NULL OR EXISTS(SELECT 1 FROM public.trusted_publishers t WHERE t.id=k.trusted_publisher_id AND t.enabled))")
+        .bind(hash_key(&key)).fetch_optional(&state.db).await?.ok_or_else(ApiError::unauthorized)?;
+    if who.bound_feed && who.feed_id != state.feed {
+        return Err(ApiError::forbidden(
+            "This credential is bound to another feed",
+        ));
+    }
+    Ok(who)
 }
 fn credential(headers: &HeaderMap) -> Option<String> {
     if let Some(value) = token(headers) {

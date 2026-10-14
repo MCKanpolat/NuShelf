@@ -587,6 +587,7 @@ async fn named_feeds_isolate_packages_storage_search_and_permissions() {
             json!([])
         );
         webhook_checks(&c, &base, &event_state).await;
+        trusted_checks(&c, &base, &event_state, &p, &ids[1]).await;
         server.abort();
         db.close().await;
         sqlx::query(&format!("DROP DATABASE {database} WITH (FORCE)"))
@@ -594,6 +595,224 @@ async fn named_feeds_isolate_packages_storage_search_and_permissions() {
             .await
             .unwrap();
     }
+}
+async fn trusted_checks(c: &Client, base: &str, state: &AppState, profile: &str, feed: &str) {
+    use jsonwebtoken::{Algorithm, EncodingKey, Header};
+    let jwks: Value = serde_json::from_str(include_str!("fixtures/oidc-jwks.json")).unwrap();
+    sqlx::query(
+        "UPDATE public.trusted_oidc_keys SET document=$1,fetched_at=now(),last_attempt=now()",
+    )
+    .bind(jwks)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    let policy=json_response(c.post(format!("{base}/api/trusted-publishing")).bearer_auth(ADMIN).json(&json!({"profileId":profile,"name":"Signed CI publisher","repository":"acme/library","repositoryId":"123456","ownerId":"7890","workflow":".github/workflows/publish.yml","gitRef":"refs/heads/main","packagePrefix":"Trusted.","feedId":feed})).send().await.unwrap()).await;
+    let now = chrono::Utc::now().timestamp();
+    let base_claims = json!({"iss":nushelf::trusted::ISSUER,"aud":base,"sub":"repo:acme@7890/library@123456:ref:refs/heads/main","exp":now+300,"iat":now,"nbf":now-1,"jti":Uuid::new_v4().to_string(),"repository":"acme/library","repository_id":"123456","repository_owner_id":"7890","workflow_ref":"acme/library/.github/workflows/publish.yml@refs/heads/main","ref":"refs/heads/main","event_name":"push"});
+    let rsa = EncodingKey::from_rsa_pem(include_bytes!("fixtures/oidc-private.pem")).unwrap();
+    let mut header = Header::new(Algorithm::RS256);
+    header.kid = Some("fixture".into());
+    let encode = |claims: &Value| jsonwebtoken::encode(&header, claims, &rsa).unwrap();
+    for (field, bad, status) in [
+        (
+            "aud",
+            json!("https://another.example"),
+            StatusCode::UNAUTHORIZED,
+        ),
+        (
+            "iss",
+            json!("https://untrusted.example"),
+            StatusCode::UNAUTHORIZED,
+        ),
+        ("exp", json!(now - 100), StatusCode::UNAUTHORIZED),
+        ("iat", json!(now + 100), StatusCode::UNAUTHORIZED),
+        ("repository_id", json!("999999"), StatusCode::FORBIDDEN),
+        ("repository_owner_id", json!("123"), StatusCode::FORBIDDEN),
+        (
+            "workflow_ref",
+            json!("acme/library/.github/workflows/other.yml@refs/heads/main"),
+            StatusCode::FORBIDDEN,
+        ),
+        ("ref", json!("refs/heads/other"), StatusCode::FORBIDDEN),
+        (
+            "event_name",
+            json!("pull_request_target"),
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            "sub",
+            json!("repo:other/library:ref:refs/heads/main"),
+            StatusCode::FORBIDDEN,
+        ),
+    ] {
+        let mut claims = base_claims.clone();
+        claims[field] = bad;
+        claims["jti"] = json!(Uuid::new_v4().to_string());
+        assert_eq!(
+            c.post(format!("{base}/api/trusted-publishing/exchange"))
+                .json(&json!({"token":encode(&claims)}))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            status,
+            "{field}"
+        );
+    }
+    let token = encode(&base_claims);
+    use base64::Engine;
+    let parts: Vec<_> = token.split('.').collect();
+    let mut altered = base_claims.clone();
+    altered["jti"] = json!(Uuid::new_v4().to_string());
+    let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(serde_json::to_vec(&altered).unwrap());
+    let tampered = format!("{}.{}.{}", parts[0], payload, parts[2]);
+    assert_eq!(
+        c.post(format!("{base}/api/trusted-publishing/exchange"))
+            .json(&json!({"token":tampered}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let issued = json_response(
+        c.post(format!("{base}/api/trusted-publishing/exchange"))
+            .json(&json!({"token":token}))
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(
+        c.post(format!("{base}/api/trusted-publishing/exchange"))
+            .json(&json!({"token":token}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let key = issued["key"].as_str().unwrap();
+    let target = format!("{base}/feeds/beta");
+    let me = json_response(
+        c.get(format!("{target}/api/me"))
+            .bearer_auth(key)
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(me["scopes"], json!(["package:push", "package:read"]));
+    assert_eq!(me["packagePrefix"], "trusted.");
+    let expiry =
+        chrono::DateTime::parse_from_rfc3339(issued["expiresAt"].as_str().unwrap()).unwrap();
+    assert!(expiry.timestamp() - now <= 601);
+    assert_eq!(
+        c.get(format!("{base}/api/me"))
+            .bearer_auth(key)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        c.put(format!("{target}/api/v2/package"))
+            .bearer_auth(key)
+            .body(package("Outside.Prefix"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        c.put(format!("{target}/api/v2/package"))
+            .bearer_auth(key)
+            .body(package("Trusted.Core"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::CREATED
+    );
+    assert_eq!(
+        c.delete(format!("{target}/api/v2/package/trusted.core/1.0.0"))
+            .bearer_auth(key)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let events = json_response(
+        c.get(format!("{base}/api/events?take=200"))
+            .bearer_auth(ADMIN)
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        events
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["type"] == "package.published"
+                && e["target"]["id"] == "Trusted.Core"
+                && e["keyId"] == issued["id"])
+    );
+    assert!(!events.to_string().contains(key));
+    assert!(!events.to_string().contains(&token));
+    let mut legacy = base_claims.clone();
+    legacy["sub"] = json!("repo:acme/library:ref:refs/heads/main");
+    legacy["jti"] = json!(Uuid::new_v4().to_string());
+    let legacy = json_response(
+        c.post(format!("{base}/api/trusted-publishing/exchange"))
+            .json(&json!({"token":encode(&legacy)}))
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert!(legacy["key"].is_string());
+    assert_eq!(
+        c.delete(format!(
+            "{base}/api/trusted-publishing/{}",
+            policy["id"].as_str().unwrap()
+        ))
+        .bearer_auth(ADMIN)
+        .send()
+        .await
+        .unwrap()
+        .status(),
+        StatusCode::NO_CONTENT
+    );
+    assert_eq!(
+        c.get(format!("{target}/api/me"))
+            .bearer_auth(key)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
+    let wrong = jsonwebtoken::encode(
+        &Header::new(Algorithm::HS256),
+        &base_claims,
+        &EncodingKey::from_secret(b"untrusted"),
+    )
+    .unwrap();
+    assert_eq!(
+        c.post(format!("{base}/api/trusted-publishing/exchange"))
+            .json(&json!({"token":wrong}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::UNAUTHORIZED
+    );
 }
 async fn webhook_checks(c: &Client, base: &str, state: &AppState) {
     use axum::{Router, extract::State, http::HeaderMap, routing::post};
