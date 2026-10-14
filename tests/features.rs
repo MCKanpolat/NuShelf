@@ -90,6 +90,7 @@ async fn named_feeds_isolate_packages_storage_search_and_permissions() {
             database_connections: 8,
             storage_provider: provider.into(),
             storage_path: dir.path().to_str().unwrap().into(),
+            metrics_bind: None,
         };
         let storage: Arc<dyn object_store::ObjectStore> = if provider == "local" {
             nushelf::storage::build(&config).unwrap()

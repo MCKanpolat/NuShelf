@@ -21,6 +21,8 @@ futures-util = "0.3"
 hex = "0.4"
 hmac = "0.12"
 jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
 object_store = { version = "0.12", features = ["aws", "azure", "gcp"] }
 roxmltree = "0.20"
 pulldown-cmark = "0.13"

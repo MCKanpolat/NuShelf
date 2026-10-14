@@ -467,6 +467,7 @@ async fn run(db: &PgPool, settings: &Settings) -> Result<Value> {
         database_connections: settings.database_connections,
         storage_provider: "local".into(),
         storage_path: dir.path().to_string_lossy().into_owned(),
+        metrics_bind: None,
     };
     let state = AppState {
         db: db.clone(),

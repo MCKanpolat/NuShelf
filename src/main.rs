@@ -29,6 +29,16 @@ async fn main() -> Result<()> {
         })
         .connect(&config.database_url)
         .await?;
+    if let Some(address) = config.metrics_bind {
+        let handle = nushelf::telemetry::install()?;
+        let metrics_listener = tokio::net::TcpListener::bind(address).await?;
+        let db = db.clone();
+        tokio::spawn(async move {
+            if let Err(e) = nushelf::telemetry::serve(metrics_listener, handle, db).await {
+                tracing::error!(error = %e, "metrics endpoint stopped");
+            }
+        });
+    }
     sqlx::migrate!("./migrations").run(&db).await?;
     let storage = storage::build(&config)?;
     let address = config.bind;

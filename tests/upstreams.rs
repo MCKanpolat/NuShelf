@@ -207,6 +207,7 @@ async fn multi_source_read_through_cache_and_private_access() {
             database_connections: 20,
             storage_provider: provider.into(),
             storage_path: dir.path().to_string_lossy().into_owned(),
+            metrics_bind: None,
         };
         let storage: Arc<dyn object_store::ObjectStore> = if provider == "local" {
             nushelf::storage::build(&config).unwrap()
