@@ -314,6 +314,10 @@ pub async fn endpoint(
         .parse::<Uri>()
         .map_err(ApiError::internal)?;
     request.extensions_mut().clear();
+    // The outer router compresses the response after audit metadata is captured.
+    request
+        .headers_mut()
+        .remove(axum::http::header::ACCEPT_ENCODING);
     let response = crate::router(scoped)
         .oneshot(request)
         .await

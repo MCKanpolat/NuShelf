@@ -2,6 +2,7 @@ pub mod audit;
 pub mod auth;
 pub mod config;
 pub mod error;
+pub mod events;
 pub mod feeds;
 pub mod maintenance;
 pub mod mcp;
@@ -49,6 +50,11 @@ pub fn router(state: AppState) -> Router {
             limit_uploads,
         ));
     Router::new()
+        .route("/api/events",get(events::list))
+        .route("/api/webhooks",get(events::hooks).post(events::create))
+        .route("/api/webhooks/deliveries",get(events::deliveries))
+        .route("/api/webhooks/dispatch",post(events::deliver_now))
+        .route("/api/webhooks/{id}",axum::routing::delete(events::disable))
         .route("/api/cache/policy",get(maintenance::policy).patch(maintenance::settings))
         .route("/api/cache/maintenance",post(maintenance::run))
         .route("/api/cache/{id}/{version}/protection",put(maintenance::protect))
@@ -99,6 +105,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/profiles/{id}/packages",get(registry::owned_packages))
         .route("/mcp",post(mcp::endpoint).get(mcp::no_stream).delete(mcp::no_stream))
         .layer(DefaultBodyLimit::max(64*1024))
+        .layer(axum::middleware::from_fn_with_state(state.clone(),events::record))
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
         .layer(SetResponseHeaderLayer::if_not_present(header::X_CONTENT_TYPE_OPTIONS,HeaderValue::from_static("nosniff")))

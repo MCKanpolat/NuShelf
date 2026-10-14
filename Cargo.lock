@@ -1272,6 +1272,7 @@ dependencies = [
  "dotenvy",
  "futures-util",
  "hex",
+ "hmac",
  "http-body-util",
  "object_store",
  "reqwest",

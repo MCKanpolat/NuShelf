@@ -41,6 +41,7 @@ Inspired by [BaGet](https://github.com/loic-sharma/BaGet)'s straightforward depl
 | **Flexible storage** | Choose a local filesystem, AWS S3 or an S3-compatible service, Azure Blob Storage, or Google Cloud Storage through a shared storage interface. Package downloads are streamed. |
 | **Cache policies** | Preview automatic eviction by quota and last access, protect cached versions, and clean orphan archives with delayed storage deletion. |
 | **Upstream proxy & cache** | Fetch missing packages from multiple NuGet registries, route exact IDs/prefixes, pin origins, and cache archives in your storage. Manage sources and cache in the UI; private sources use profile grants and read scopes. |
+| **Audit log & webhooks** | Inspect management changes and deliver signed package events with durable retries, delivery history and optional feed subscriptions. |
 | **NuGet Audit** | Mirror nuget.org vulnerability data locally, audit private-feed restores, and highlight affected package versions in the gallery. |
 | **MCP tools** | Let an authenticated MCP client search packages, inspect metadata and dependencies, and list versions through stateless Streamable HTTP. |
 | **Docker workflow** | Run the Rust service and PostgreSQL without installing either on the host. Separate test services cover filesystem and S3 storage, a real .NET client, and Chromium. |
@@ -321,6 +322,7 @@ An interrupted upload can leave an unreferenced blob after storage succeeds but 
 | Guide | Contents |
 | --- | --- |
 | [Deployment and usage](docs/deployment.md) | Configuration, first profile, NuGet clients, storage credentials, MCP transport, and operations. |
+| [Audit log and webhooks](docs/events.md) | Mutation history, signed events, subscriptions and delivery retries. |
 | [Cache maintenance](docs/cache-maintenance.md) | Soft quotas, last-access eviction, protected versions and orphan cleanup. |
 | [Package security](docs/security.md) | NuGet Audit, advisory mirroring, offline import and client setup. |
 | [Named feeds](docs/feeds.md) | Private feeds, team roles, NuGet credentials, isolation and operations. |

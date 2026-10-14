@@ -106,6 +106,7 @@ async fn named_feeds_isolate_packages_storage_search_and_permissions() {
             feed: None,
             read_prefix: String::new(),
         };
+        let event_state = state.clone();
         let server =
             tokio::spawn(
                 async move { axum::serve(listener, nushelf::router(state)).await.unwrap() },
@@ -435,6 +436,36 @@ async fn named_feeds_isolate_packages_storage_search_and_permissions() {
             .await,
             data
         );
+        assert_eq!(
+            c.get(format!("{base}/api/events"))
+                .bearer_auth(&publisher)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let events = json_response(
+            c.get(format!("{base}/api/events?take=200"))
+                .bearer_auth(ADMIN)
+                .send()
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(
+            events
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["type"] == "package.published"
+                    && e["target"]["id"] == "Team.Core"
+                    && e["status"] == 201)
+        );
+        assert!(!events.to_string().contains(&publisher));
+        assert!(!events.to_string().contains(&reader));
+        assert!(!events.to_string().contains(ADMIN));
+        webhook_checks(&c, &base, &event_state).await;
         server.abort();
         db.close().await;
         sqlx::query(&format!("DROP DATABASE {database} WITH (FORCE)"))
@@ -442,4 +473,122 @@ async fn named_feeds_isolate_packages_storage_search_and_permissions() {
             .await
             .unwrap();
     }
+}
+async fn webhook_checks(c: &Client, base: &str, state: &AppState) {
+    use axum::{Router, extract::State, http::HeaderMap, routing::post};
+    type Received = Arc<tokio::sync::Mutex<Vec<(HeaderMap, Bytes)>>>;
+    let seen = Arc::new(tokio::sync::Mutex::new(Vec::<(HeaderMap, Bytes)>::new()));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/hook", listener.local_addr().unwrap());
+    let route = Router::new()
+        .route(
+            "/hook",
+            post(
+                |State(seen): State<Received>,
+                 headers: HeaderMap,
+                 body: Bytes| async move {
+                    let mut seen = seen.lock().await;
+                    seen.push((headers, body));
+                    if seen.len() == 1 {
+                        StatusCode::SERVICE_UNAVAILABLE
+                    } else {
+                        StatusCode::OK
+                    }
+                },
+            ),
+        )
+        .with_state(seen.clone());
+    let receiver = tokio::spawn(async move { axum::serve(listener, route).await.unwrap() });
+    let input = json!({"name":"Signed test receiver","url":url,"secretEnv":"WEBHOOK_TEST_SIGNING_KEY","events":["package.published"],"allowHttp":true,"allowPrivateNetwork":true});
+    let hook = json_response(
+        c.post(format!("{base}/api/webhooks"))
+            .bearer_auth(ADMIN)
+            .json(&input)
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    let p = profile(c, base, &format!("Webhook {}", Uuid::new_v4())).await;
+    let k = key(c, base, &p, &["package:push"], "").await;
+    assert_eq!(
+        c.put(format!("{base}/api/v2/package"))
+            .bearer_auth(k)
+            .body(package("Hook.Sample"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::CREATED
+    );
+    assert_eq!(nushelf::events::dispatch(state).await.unwrap(), 1);
+    assert_eq!(seen.lock().await.len(), 1);
+    let attempt = seen.lock().await;
+    let (headers, body) = &attempt[0];
+    let timestamp = headers["x-nushelf-timestamp"]
+        .to_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert_eq!(
+        headers["x-nushelf-signature"].to_str().unwrap(),
+        nushelf::events::signature(
+            "test-signing-secret-with-at-least-32-characters",
+            timestamp,
+            body
+        )
+    );
+    let delivery = headers["x-nushelf-delivery"].clone();
+    drop(attempt);
+    assert_eq!(nushelf::events::dispatch(state).await.unwrap(), 0);
+    sqlx::query("UPDATE public.webhook_deliveries SET next_attempt=now()-interval '1 minute' WHERE completed_at IS NULL").execute(&state.db).await.unwrap();
+    assert_eq!(nushelf::events::dispatch(state).await.unwrap(), 1);
+    assert_eq!(seen.lock().await[1].0["x-nushelf-delivery"], delivery);
+    let deliveries = json_response(
+        c.get(format!("{base}/api/webhooks/deliveries"))
+            .bearer_auth(ADMIN)
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(deliveries[0]["attempts"], 2);
+    assert_eq!(deliveries[0]["status"], 200);
+    assert_eq!(
+        c.delete(format!(
+            "{base}/api/webhooks/{}",
+            hook["id"].as_str().unwrap()
+        ))
+        .bearer_auth(ADMIN)
+        .send()
+        .await
+        .unwrap()
+        .status(),
+        StatusCode::NO_CONTENT
+    );
+    let mut unsafe_hook = input;
+    unsafe_hook["allowPrivateNetwork"] = json!(false);
+    unsafe_hook["name"] = json!("Blocked receiver");
+    json_response(
+        c.post(format!("{base}/api/webhooks"))
+            .bearer_auth(ADMIN)
+            .json(&unsafe_hook)
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(
+        c.put(format!("{base}/api/v2/package"))
+            .bearer_auth(key(c, base, &p, &["package:push"], "").await)
+            .body(package("Hook.Blocked"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::CREATED
+    );
+    nushelf::events::dispatch(state).await.unwrap();
+    assert_eq!(seen.lock().await.len(), 2);
+    receiver.abort();
 }

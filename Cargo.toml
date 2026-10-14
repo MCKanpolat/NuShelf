@@ -18,6 +18,7 @@ chrono = { version = "0.4", features = ["serde"] }
 dotenvy = "0.15"
 futures-util = "0.3"
 hex = "0.4"
+hmac = "0.12"
 object_store = { version = "0.12", features = ["aws", "azure", "gcp"] }
 roxmltree = "0.20"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "gzip"] }

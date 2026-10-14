@@ -41,7 +41,7 @@ fn public_ip(ip: IpAddr) -> bool {
         ),
     }
 }
-async fn client(source: &Source, url: &url::Url) -> ApiResult<reqwest::Client> {
+pub(crate) async fn client(source: &Source, url: &url::Url) -> ApiResult<reqwest::Client> {
     if !matches!(url.scheme(), "https" | "http")
         || (url.scheme() == "http" && !source.allow_http)
         || !url.username().is_empty()
