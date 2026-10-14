@@ -1,0 +1,18 @@
+apiVersion: v2
+name: nushelf
+description: A self-hosted NuGet V3 registry with PostgreSQL search, team feeds, upstream caching and pluggable storage
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+kubeVersion: ">=1.25.0-0"
+home: https://github.com/MCKanpolat/NuShelf
+sources:
+  - https://github.com/MCKanpolat/NuShelf
+keywords:
+  - nuget
+  - package-registry
+  - artifact-repository
+  - dotnet
+maintainers:
+  - name: MCKanpolat
+    url: https://github.com/MCKanpolat

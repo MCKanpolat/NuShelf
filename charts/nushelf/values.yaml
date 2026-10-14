@@ -1,0 +1,215 @@
+# Default values for the NuShelf chart.
+
+image:
+  repository: ghcr.io/mckanpolat/nushelf
+  # Defaults to the chart appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# All background workers coordinate through PostgreSQL advisory locks and
+# SKIP LOCKED queues, so more than one replica is safe with shared storage
+# (s3, azure or gcs). The local provider with a ReadWriteOnce volume is
+# limited to a single replica.
+replicaCount: 1
+
+# Externally reachable origin, without a path, e.g. https://nuget.example.com.
+# Required: NuGet documents are built from this value, not request headers.
+publicUrl: ""
+
+config:
+  # local, s3, azure or gcs.
+  storageProvider: local
+  # Largest accepted package, in bytes (1 KiB to 1 GiB).
+  maxPackageBytes: 104857600
+  # PostgreSQL pool size per replica.
+  databaseConnections: 20
+  logLevel: nushelf=info,tower_http=info
+
+# ADMIN_API_KEY and DATABASE_URL. Production deployments should reference an
+# existing Secret (e.g. one managed by External Secrets or Sealed Secrets).
+secrets:
+  existingSecret: ""
+  adminApiKeyKey: ADMIN_API_KEY
+  databaseUrlKey: DATABASE_URL
+  # Only used when existingSecret is empty; the chart then creates a Secret.
+  adminApiKey: ""
+  databaseUrl: ""
+
+storage:
+  # Used when config.storageProvider is s3. Leave credentials out to use the
+  # workload identity of the pod (EKS Pod Identity or IRSA); otherwise add
+  # AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY through extraEnvFrom.
+  s3:
+    bucket: ""
+    region: ""
+    # Custom endpoint for S3-compatible services (MinIO, R2, ...).
+    endpoint: ""
+    allowHttp: false
+    # Set to false for path-style addressing (most S3-compatible services).
+    virtualHostedStyleRequest: ""
+  # Used when config.storageProvider is azure. Supply AZURE_STORAGE_ACCOUNT_KEY
+  # through extraEnvFrom, or use workload identity.
+  azure:
+    accountName: ""
+    containerName: ""
+  # Used when config.storageProvider is gcs. Mount a service account key with
+  # extraVolumes/extraVolumeMounts and set serviceAccountPath, or use
+  # workload identity.
+  gcs:
+    bucket: ""
+    serviceAccountPath: ""
+
+# Volume for the local storage provider. Without it, packages live in an
+# emptyDir and are lost when the pod is rescheduled.
+persistence:
+  enabled: false
+  existingClaim: ""
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 10Gi
+  annotations: {}
+
+serviceAccount:
+  create: true
+  # Defaults to the release fullname.
+  name: ""
+  # e.g. eks.amazonaws.com/role-arn for IRSA, or the GKE / Azure workload
+  # identity annotations.
+  annotations: {}
+  automountServiceAccountToken: false
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+service:
+  type: ClusterIP
+  port: 80
+  annotations: {}
+
+# Prometheus metrics on a separate port (METRICS_BIND_ADDRESS). The port is
+# added to the Service but never routed by the Ingress or HTTPRoute.
+metrics:
+  enabled: false
+  port: 9090
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+    labels: {}
+    annotations: {}
+  prometheusRule:
+    enabled: false
+    labels: {}
+    annotations: {}
+    # Built-in alerts: NuShelfDown, NuShelfHighErrorRate, NuShelfSlowRequests.
+    defaultRules: true
+    # Fraction of 5xx responses that fires NuShelfHighErrorRate.
+    errorRateThreshold: 0.05
+    # p95 latency, in seconds, that fires NuShelfSlowRequests.
+    latencyThresholdSeconds: 2
+    additionalRules: []
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: nuget.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+# Gateway API HTTPRoute, as an alternative to the Ingress.
+httpRoute:
+  enabled: false
+  annotations: {}
+  labels: {}
+  parentRefs: []
+  #  - name: my-gateway
+  #    namespace: gateway-system
+  #    sectionName: https
+  hostnames: []
+  # Defaults to a single rule sending every path to the service.
+  rules: []
+
+livenessProbe:
+  httpGet:
+    path: /health/live
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# Migrations run before the server binds, so allow a slow first start.
+startupProbe:
+  httpGet:
+    path: /health/live
+    port: http
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 60
+
+resources: {}
+#  requests:
+#    cpu: 100m
+#    memory: 128Mi
+#  limits:
+#    memory: 512Mi
+
+# Defaults to RollingUpdate, or Recreate with a ReadWriteOnce local volume.
+strategy: {}
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: ""
+  maxUnavailable: 1
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+priorityClassName: ""
+terminationGracePeriodSeconds: 30
+
+extraEnv: []
+#  - name: UPSTREAM_COMPANY_TOKEN
+#    valueFrom:
+#      secretKeyRef:
+#        name: nushelf-upstreams
+#        key: token
+
+extraEnvFrom: []
+#  - secretRef:
+#      name: nushelf-storage-credentials
+
+extraVolumes: []
+extraVolumeMounts: []

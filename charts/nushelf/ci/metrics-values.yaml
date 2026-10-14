@@ -1,0 +1,23 @@
+publicUrl: https://nuget.example.com
+config:
+  storageProvider: s3
+storage:
+  s3:
+    bucket: nushelf-packages
+    region: eu-central-1
+secrets:
+  existingSecret: nushelf-secrets
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    labels:
+      release: prometheus
+  prometheusRule:
+    enabled: true
+    additionalRules:
+      - alert: NuShelfNoPublishes
+        expr: sum(increase(nushelf_http_requests_total{route=~"/api/v2/package/?",status="201"}[1d])) == 0
+        for: 1h
+        labels:
+          severity: info

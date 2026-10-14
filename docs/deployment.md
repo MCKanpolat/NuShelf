@@ -245,6 +245,10 @@ docker compose -f compose.test.yml --profile e2e --profile ui down
 
 See [screenshot capture instructions](images/README.md) to regenerate documentation images separately from browser regression tests.
 
+## Kubernetes
+
+The [Helm chart](../charts/nushelf/README.md) deploys the registry against an existing PostgreSQL database and any of the storage providers below. Tagged releases publish a multi-architecture image to `ghcr.io/mckanpolat/nushelf` and the chart to `oci://ghcr.io/mckanpolat/charts/nushelf`.
+
 ## Operational boundaries
 
 - Root-registry reads and discovery are public. Named feeds support private local packages, isolated namespaces and team membership; see [named feeds](feeds.md). Private upstream caches use source grants and `package:read`; see [upstream configuration](upstreams.md).

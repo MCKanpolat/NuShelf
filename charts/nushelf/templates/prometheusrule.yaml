@@ -1,0 +1,54 @@
+{{- if and .Values.metrics.enabled .Values.metrics.prometheusRule.enabled -}}
+{{- $selector := printf "namespace=%q,service=%q" .Release.Namespace (include "nushelf.fullname" .) }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "nushelf.fullname" . }}
+  labels:
+    {{- include "nushelf.labels" . | nindent 4 }}
+    {{- with .Values.metrics.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.metrics.prometheusRule.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  groups:
+    - name: {{ include "nushelf.fullname" . }}
+      rules:
+        {{- if .Values.metrics.prometheusRule.defaultRules }}
+        - alert: NuShelfDown
+          expr: absent(up{ {{- $selector -}} } == 1)
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: NuShelf has no reachable replicas
+            description: No NuShelf metrics endpoint in {{ .Release.Namespace }} has been scrapeable for 5 minutes.
+        - alert: NuShelfHighErrorRate
+          expr: |
+            sum(rate(nushelf_http_requests_total{ {{- $selector -}} ,status=~"5.."}[5m]))
+              / sum(rate(nushelf_http_requests_total{ {{- $selector -}} }[5m]))
+              > {{ .Values.metrics.prometheusRule.errorRateThreshold }}
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: NuShelf is returning server errors
+            description: {{ printf "More than %v%% of NuShelf requests failed with 5xx over 10 minutes." (mulf .Values.metrics.prometheusRule.errorRateThreshold 100) }}
+        - alert: NuShelfSlowRequests
+          expr: |
+            histogram_quantile(0.95, sum by (le, route) (rate(nushelf_http_request_duration_seconds_bucket{ {{- $selector -}} ,route!~"/api/v2/package/?"}[5m])))
+              > {{ .Values.metrics.prometheusRule.latencyThresholdSeconds }}
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: {{ "NuShelf route {{ $labels.route }} is slow" | quote }}
+            description: {{ printf "p95 latency has been above %vs for 15 minutes; package uploads are excluded." .Values.metrics.prometheusRule.latencyThresholdSeconds | quote }}
+        {{- end }}
+        {{- with .Values.metrics.prometheusRule.additionalRules }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+{{- end }}

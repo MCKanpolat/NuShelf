@@ -1,0 +1,23 @@
+publicUrl: https://nuget.example.com
+replicaCount: 2
+config:
+  storageProvider: s3
+storage:
+  s3:
+    bucket: nushelf-packages
+    region: eu-central-1
+secrets:
+  existingSecret: nushelf-secrets
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/nushelf
+podDisruptionBudget:
+  enabled: true
+httpRoute:
+  enabled: true
+  parentRefs:
+    - name: gateway
+      namespace: gateway-system
+      sectionName: https
+  hostnames:
+    - nuget.example.com

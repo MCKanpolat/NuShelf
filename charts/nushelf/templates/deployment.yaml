@@ -1,0 +1,192 @@
+{{- include "nushelf.validate" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "nushelf.fullname" . }}
+  labels:
+    {{- include "nushelf.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- if .Values.strategy }}
+  strategy:
+    {{- toYaml .Values.strategy | nindent 4 }}
+  {{- else if include "nushelf.singleWriterVolume" . }}
+  strategy:
+    type: Recreate
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "nushelf.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- if not .Values.secrets.existingSecret }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "nushelf.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "nushelf.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: nushelf
+          image: {{ include "nushelf.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 5000
+              protocol: TCP
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+            {{- end }}
+          env:
+            - name: BIND_ADDRESS
+              value: "0.0.0.0:5000"
+            - name: PUBLIC_URL
+              value: {{ .Values.publicUrl | trimSuffix "/" | quote }}
+            - name: STORAGE_PROVIDER
+              value: {{ .Values.config.storageProvider | quote }}
+            - name: STORAGE_PATH
+              value: /data/packages
+            - name: MAX_PACKAGE_BYTES
+              value: {{ .Values.config.maxPackageBytes | int64 | quote }}
+            - name: DATABASE_CONNECTIONS
+              value: {{ .Values.config.databaseConnections | quote }}
+            - name: RUST_LOG
+              value: {{ .Values.config.logLevel | quote }}
+            {{- if .Values.metrics.enabled }}
+            - name: METRICS_BIND_ADDRESS
+              value: "0.0.0.0:{{ .Values.metrics.port }}"
+            {{- end }}
+            - name: ADMIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nushelf.secretName" . }}
+                  key: {{ .Values.secrets.adminApiKeyKey }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nushelf.secretName" . }}
+                  key: {{ .Values.secrets.databaseUrlKey }}
+            {{- if eq .Values.config.storageProvider "s3" }}
+            {{- with .Values.storage.s3 }}
+            - name: AWS_BUCKET
+              value: {{ .bucket | quote }}
+            {{- if .region }}
+            - name: AWS_REGION
+              value: {{ .region | quote }}
+            {{- end }}
+            {{- if .endpoint }}
+            - name: AWS_ENDPOINT
+              value: {{ .endpoint | quote }}
+            {{- end }}
+            - name: AWS_ALLOW_HTTP
+              value: {{ .allowHttp | quote }}
+            {{- if ne (toString .virtualHostedStyleRequest) "" }}
+            - name: AWS_VIRTUAL_HOSTED_STYLE_REQUEST
+              value: {{ .virtualHostedStyleRequest | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- if eq .Values.config.storageProvider "azure" }}
+            {{- with .Values.storage.azure }}
+            - name: AZURE_STORAGE_ACCOUNT_NAME
+              value: {{ .accountName | quote }}
+            - name: AZURE_STORAGE_CONTAINER_NAME
+              value: {{ .containerName | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if eq .Values.config.storageProvider "gcs" }}
+            {{- with .Values.storage.gcs }}
+            - name: GOOGLE_BUCKET
+              value: {{ .bucket | quote }}
+            {{- if .serviceAccountPath }}
+            - name: GOOGLE_SERVICE_ACCOUNT_PATH
+              value: {{ .serviceAccountPath | quote }}
+            {{- end }}
+            {{- end }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.livenessProbe }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.readinessProbe }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if eq .Values.config.storageProvider "local" }}
+            - name: packages
+              mountPath: /data/packages
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if eq .Values.config.storageProvider "local" }}
+        - name: packages
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (include "nushelf.fullname" .) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
