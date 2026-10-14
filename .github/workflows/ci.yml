@@ -22,6 +22,22 @@ jobs:
       - name: Stop test stack
         if: always()
         run: docker compose -f compose.test.yml --profile e2e --profile ui down
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Install kubeconform
+        run: curl -fsSL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | sudo tar xz -C /usr/local/bin kubeconform
+      - name: Lint and validate rendered manifests
+        run: |
+          for values in charts/nushelf/ci/*.yaml; do
+            echo "::group::$values"
+            helm lint charts/nushelf --strict -f "$values"
+            helm template nushelf charts/nushelf -f "$values" \
+              | kubeconform -strict -summary -ignore-missing-schemas -kubernetes-version 1.30.0
+            echo "::endgroup::"
+          done
   performance:
     runs-on: ubuntu-latest
     timeout-minutes: 20

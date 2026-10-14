@@ -1,0 +1,6 @@
+publicUrl: http://nushelf.local
+secrets:
+  adminApiKey: 0123456789abcdef0123456789abcdef
+  databaseUrl: postgres://nushelf:nushelf@postgres:5432/nushelf
+persistence:
+  enabled: true

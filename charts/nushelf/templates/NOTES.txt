@@ -1,0 +1,24 @@
+NuShelf is deploying as {{ include "nushelf.fullname" . }}.
+
+NuGet package source:
+  {{ .Values.publicUrl | trimSuffix "/" }}/v3/index.json
+
+Package gallery and workspace management:
+  {{ .Values.publicUrl | trimSuffix "/" }}/
+  {{ .Values.publicUrl | trimSuffix "/" }}/manage  (sign in with ADMIN_API_KEY)
+
+{{- if not (or .Values.ingress.enabled .Values.httpRoute.enabled) }}
+
+No Ingress or HTTPRoute is enabled. To reach it locally:
+  kubectl --namespace {{ .Release.Namespace }} port-forward svc/{{ include "nushelf.fullname" . }} 5000:{{ .Values.service.port }}
+{{- end }}
+{{- if and (eq .Values.config.storageProvider "local") (not .Values.persistence.enabled) }}
+
+WARNING: packages are stored in an emptyDir and are lost when the pod is
+rescheduled. Enable persistence or use the s3, azure or gcs provider.
+{{- end }}
+{{- if not .Values.secrets.existingSecret }}
+
+WARNING: secrets are taken from chart values. Prefer secrets.existingSecret
+for anything beyond a trial installation.
+{{- end }}
