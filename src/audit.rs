@@ -338,7 +338,7 @@ pub fn worker(state: AppState) {
 }
 pub async fn advisories(state: &AppState, id: &str) -> ApiResult<Value> {
     let row: Option<Value> =
-        sqlx::query_scalar("SELECT data->$1 FROM public.audit_snapshots WHERE current")
+        sqlx::query_scalar("SELECT COALESCE(data->$1,'[]'::jsonb) FROM public.audit_snapshots WHERE current")
             .bind(id.to_ascii_lowercase())
             .fetch_optional(&state.db)
             .await?;

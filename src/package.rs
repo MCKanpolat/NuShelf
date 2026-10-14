@@ -2,6 +2,7 @@ use crate::{
     error::{ApiError, ApiResult},
     version::{NuGetVersion, package_id},
 };
+use base64::Engine;
 use bytes::Bytes;
 use roxmltree::Node;
 use serde_json::{Value, json};
@@ -19,6 +20,7 @@ pub struct ParsedPackage {
     pub license_expression: Option<String>,
     pub dependencies: Value,
     pub nuspec: Vec<u8>,
+    pub assets: Value,
 }
 fn child<'a, 'input>(node: Node<'a, 'input>, name: &str) -> Option<Node<'a, 'input>> {
     node.children()
@@ -73,6 +75,7 @@ pub fn parse(bytes: &Bytes) -> ApiResult<ParsedPackage> {
     if nuspec.len() > 1024 * 1024 {
         return Err(ApiError::bad("Manifest exceeds 1 MiB"));
     }
+    drop(file);
     let xml = std::str::from_utf8(&nuspec).map_err(|_| ApiError::bad("Manifest must be UTF-8"))?;
     let doc = roxmltree::Document::parse(xml)
         .map_err(|_| ApiError::bad("Invalid nuspec XML (DTDs are not supported)"))?;
@@ -145,6 +148,27 @@ pub fn parse(bytes: &Bytes) -> ApiResult<ParsedPackage> {
         .filter(|c| c.attribute("type") == Some("expression"))
         .and_then(|c| c.text())
         .map(str::to_owned);
+    let readme_path = text(metadata, "readme");
+    let readme = embedded(&mut archive, &readme_path, 1024 * 1024)?
+        .map(|b| String::from_utf8(b).map_err(|_| ApiError::bad("README must be UTF-8")))
+        .transpose()?;
+    let icon_path = text(metadata, "icon");
+    let icon = embedded(&mut archive, &icon_path, 1024 * 1024)?;
+    let icon_type = icon.as_ref().map(|b| icon_type(b)).transpose()?;
+    let mut frameworks = Vec::new();
+    for name in archive.file_names() {
+        let parts: Vec<_> = name.split('/').collect();
+        if parts.len() >= 3 && ["lib", "ref"].contains(&parts[0]) && !parts[1].is_empty() {
+            frameworks.push(parts[1].to_owned());
+        }
+    }
+    frameworks.sort();
+    frameworks.dedup();
+    let repository = child(metadata, "repository")
+        .and_then(|r| r.attribute("url"))
+        .filter(|u| url::Url::parse(u).is_ok_and(|u| matches!(u.scheme(), "https" | "http")))
+        .map(str::to_owned);
+    let assets = json!({"readme":readme,"icon":icon.map(|b|base64::engine::general_purpose::STANDARD.encode(b)),"iconType":icon_type,"frameworks":frameworks,"repository":repository});
     Ok(ParsedPackage {
         id,
         display_id,
@@ -157,7 +181,49 @@ pub fn parse(bytes: &Bytes) -> ApiResult<ParsedPackage> {
         license_expression,
         dependencies: json!(groups),
         nuspec,
+        assets,
     })
+}
+fn embedded(
+    archive: &mut zip::ZipArchive<Cursor<&Bytes>>,
+    name: &str,
+    limit: usize,
+) -> ApiResult<Option<Vec<u8>>> {
+    if name.is_empty() {
+        return Ok(None);
+    }
+    let name = name.replace('\\', "/");
+    if name.starts_with('/')
+        || name.contains(':')
+        || name
+            .split('/')
+            .any(|p| p == ".." || p == "." || p.is_empty())
+    {
+        return Err(ApiError::bad("Unsafe embedded asset path"));
+    }
+    let file = archive
+        .by_name(&name)
+        .map_err(|_| ApiError::bad("Referenced package asset is missing"))?;
+    if file.size() > limit as u64 {
+        return Err(ApiError::bad("Embedded package asset exceeds 1 MiB"));
+    }
+    let mut bytes = Vec::new();
+    file.take(limit as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| ApiError::bad("Cannot read package asset"))?;
+    if bytes.len() > limit {
+        return Err(ApiError::bad("Package asset exceeds size limit"));
+    }
+    Ok(Some(bytes))
+}
+fn icon_type(bytes: &[u8]) -> ApiResult<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Ok("image/png")
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        Ok("image/jpeg")
+    } else {
+        Err(ApiError::bad("Package icons must be PNG or JPEG"))
+    }
 }
 
 #[cfg(test)]

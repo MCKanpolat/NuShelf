@@ -32,6 +32,7 @@ Inspired by [BaGet](https://github.com/loic-sharma/BaGet)'s straightforward depl
 | Capability | What you can do |
 | --- | --- |
 | **NuGet V3 registry** | Publish `.nupkg` files, download packages and nuspec manifests, discover versions, fetch registration metadata, search, and autocomplete using standard NuGet endpoints. |
+| **Rich package pages** | Render sanitized embedded Markdown READMEs, PNG/JPEG icons, source repository links and included frameworks, with private asset access. |
 | **Package gallery** | Browse recent or popular packages; search IDs, tags, authors, and descriptions; filter prereleases; inspect dependencies and version history; upload a package in your browser. |
 | **Private team feeds** | Isolate package namespaces, search, upstreams and storage by feed. Grant profiles reader, publisher or administrator membership; private reads require scoped credentials. |
 | **Workspace management** | Create publisher profiles, edit profile names, manage credentials, and list or unlist owned package versions from a dedicated UI. |
@@ -313,7 +314,7 @@ Tests exercise NuGet version ordering, malformed ZIP/XML handling, ownership, ke
 
 **Implemented:** NuGet V3 resources, V2-shaped push/delete endpoints, local package ownership, scoped keys, gallery and management UI, PostgreSQL search, pluggable storage, multiple upstreams with read-through cache and private grants, and read-only MCP.
 
-**Not implemented yet:** legacy OData V2 feeds, symbol serving / `.snupkg`, proactive/full upstream mirroring, federated upstream keyword search, NuGet catalog feeds, package signature validation, embedded README/icon rendering, password/OIDC login, email flows, public self-registration, and private reads in the root registry (named feeds support private local packages).
+**Not implemented yet:** legacy OData V2 feeds, symbol serving / `.snupkg`, proactive/full upstream mirroring, federated upstream keyword search, NuGet catalog feeds, package signature validation, password/OIDC login, email flows, public self-registration, and private reads in the root registry (named feeds support private local packages).
 
 An interrupted upload can leave an unreferenced blob after storage succeeds but before the database commits; orphan cleanup runs when cache maintenance is enabled. Readiness checks PostgreSQL rather than remote storage write permissions. The deployment guide covers these operational boundaries.
 
@@ -322,6 +323,7 @@ An interrupted upload can leave an unreferenced blob after storage succeeds but 
 | Guide | Contents |
 | --- | --- |
 | [Deployment and usage](docs/deployment.md) | Configuration, first profile, NuGet clients, storage credentials, MCP transport, and operations. |
+| [Rich package pages](docs/package-pages.md) | Embedded README, icons, framework metadata and safe rendering. |
 | [Audit log and webhooks](docs/events.md) | Mutation history, signed events, subscriptions and delivery retries. |
 | [Cache maintenance](docs/cache-maintenance.md) | Soft quotas, last-access eviction, protected versions and orphan cleanup. |
 | [Package security](docs/security.md) | NuGet Audit, advisory mirroring, offline import and client setup. |

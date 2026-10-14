@@ -223,6 +223,12 @@ pub async fn push(State(state): State<AppState>, request: Request) -> ApiResult<
         .bind(&parsed.id)
         .execute(&mut *tx)
         .await?;
+    sqlx::query("UPDATE package_versions SET assets=$3 WHERE package_id=$1 AND version=$2")
+        .bind(&parsed.id)
+        .bind(&parsed.version.normalized)
+        .bind(&parsed.assets)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     Ok((
         StatusCode::CREATED,

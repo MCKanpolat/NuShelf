@@ -24,8 +24,11 @@ with zipfile.ZipFile('/results/ui-sample.nupkg') as source, zipfile.ZipFile('/tm
             xml=ElementTree.fromstring(content)
             for node in xml.iter():
                 if node.tag.split('}')[-1]=='id': node.text=sys.argv[1]
+            metadata=next(n for n in xml.iter() if n.tag.split('}')[-1]=='metadata')
+            ElementTree.SubElement(metadata,'readme').text='README.md'
             content=ElementTree.tostring(xml,encoding='utf-8',xml_declaration=True)
         target.writestr(entry,content)
+    target.writestr("README.md","# Embedded documentation\n\n**Published README content**\n\n<script>window.readmeUnsafe=true</script>")
 `,uiPackageId]);
   await page.getByLabel('Profile name',{exact:true}).fill(name);
   await page.getByRole('button',{name:'Create profile'}).click();
@@ -57,6 +60,8 @@ with zipfile.ZipFile('/results/ui-sample.nupkg') as source, zipfile.ZipFile('/tm
   await expect(page.locator('#upload-result')).toContainText(`Published ${uiPackageId}`);
   await page.getByRole('link',{name:'View package',exact:false}).click();
   await expect(page.getByRole('heading',{name:'Version history',exact:true})).toBeVisible();
+  await expect(page.locator('.readme-content')).toContainText('Published README content');
+  expect(await page.evaluate(()=>window.readmeUnsafe)).toBeUndefined();
   await expect(page.getByRole('link',{name:'Download package',exact:false})).toBeVisible();
   await page.screenshot({path:'/results/package-desktop.png',fullPage:true});
   await page.getByRole('link',{name:'Manage workspace'}).click();

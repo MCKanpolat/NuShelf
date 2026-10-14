@@ -14,7 +14,16 @@ fn package(id: &str) -> Bytes {
     let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
     zip.start_file("package.nuspec", zip::write::SimpleFileOptions::default())
         .unwrap();
-    write!(zip,"<package><metadata><id>{id}</id><version>1.0.0</version><authors>Team</authors><description>Feature test</description></metadata></package>").unwrap();
+    write!(zip,"<package><metadata><id>{id}</id><version>1.0.0</version><authors>Team</authors><description>Feature test</description><readme>README.md</readme><icon>icon.png</icon></metadata></package>").unwrap();
+    zip.start_file("README.md", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    zip.write_all(b"# Feature README\n**Safe content**\n<script>alert(1)</script>")
+        .unwrap();
+    zip.start_file("icon.png", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    zip.write_all(b"\x89PNG\r\n\x1a\nfixture").unwrap();
+    zip.start_file("lib/net8.0/_._", zip::write::SimpleFileOptions::default())
+        .unwrap();
     Bytes::from(zip.finish().unwrap().into_inner())
 }
 async fn json_response(r: Response) -> Value {
@@ -180,6 +189,30 @@ async fn named_feeds_isolate_packages_storage_search_and_permissions() {
             StatusCode::NOT_FOUND
         );
         let feed = format!("{base}/feeds/alpha");
+        let assets = json_response(
+            c.get(format!("{feed}/api/packages/team.core/1.0.0/assets"))
+                .bearer_auth(&publisher)
+                .send()
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(
+            assets["readmeHtml"]
+                .as_str()
+                .unwrap()
+                .contains("<strong>Safe content</strong>")
+        );
+        assert!(!assets["readmeHtml"].as_str().unwrap().contains("<script"));
+        assert_eq!(assets["frameworks"], json!(["net8.0"]));
+        let icon = c
+            .get(assets["iconUrl"].as_str().unwrap())
+            .bearer_auth(&publisher)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(icon.headers()["content-type"], "image/png");
+        assert!(icon.bytes().await.unwrap().starts_with(b"\x89PNG"));
         for path in [
             "v3/index.json",
             "v3/search",
@@ -465,6 +498,9 @@ async fn named_feeds_isolate_packages_storage_search_and_permissions() {
         assert!(!events.to_string().contains(&publisher));
         assert!(!events.to_string().contains(&reader));
         assert!(!events.to_string().contains(ADMIN));
+        let clean=json_response(c.get(format!("{base}/feeds/beta/api/packages/team.core")).send().await.unwrap()).await;
+        assert_eq!(clean["versions"][0]["vulnerabilities"],json!([]));
+        assert_eq!(json_response(c.get(format!("{base}/api/audit/packages/not.in.database")).send().await.unwrap()).await,json!([]));
         webhook_checks(&c, &base, &event_state).await;
         server.abort();
         db.close().await;
@@ -484,9 +520,7 @@ async fn webhook_checks(c: &Client, base: &str, state: &AppState) {
         .route(
             "/hook",
             post(
-                |State(seen): State<Received>,
-                 headers: HeaderMap,
-                 body: Bytes| async move {
+                |State(seen): State<Received>, headers: HeaderMap, body: Bytes| async move {
                     let mut seen = seen.lock().await;
                     seen.push((headers, body));
                     if seen.len() == 1 {

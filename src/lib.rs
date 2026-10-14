@@ -1,3 +1,4 @@
+pub mod assets;
 pub mod audit;
 pub mod auth;
 pub mod config;
@@ -91,6 +92,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/v2/package/{id}/{version}/",axum::routing::delete(registry::unlist).post(registry::relist))
         .route("/api/stats",get(upstream::stats))
         .route("/api/packages/{id}",get(upstream::details))
+        .route("/api/packages/{id}/{version}/assets",get(assets::details))
+        .route("/api/packages/{id}/{version}/icon",get(assets::icon))
         .route("/api/upstreams",get(upstream::sources::list).post(upstream::sources::create))
         .route("/api/upstreams/test",post(upstream::sources::test_input))
         .route("/api/upstreams/cache",get(upstream::sources::cache_list))

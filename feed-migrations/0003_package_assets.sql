@@ -1,0 +1,2 @@
+ALTER TABLE package_versions ADD COLUMN assets JSONB NOT NULL DEFAULT '{}';
+ALTER TABLE upstream_cache ADD COLUMN assets JSONB NOT NULL DEFAULT '{}';

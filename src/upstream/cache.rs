@@ -551,6 +551,12 @@ pub async fn ensure(
     })??;
     sqlx::query("INSERT INTO upstream_cache(package_id,version,version_sort,prerelease,semver2,title,description,authors,tags,catalog,nuspec,storage_key,size,sha512) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)")
         .bind(&id).bind(&version).bind(parsed.version.sort_key).bind(parsed.version.prerelease).bind(parsed.version.semver2).bind(parsed.title).bind(parsed.description).bind(parsed.authors).bind(parsed.tags).bind(&entry).bind(parsed.nuspec).bind(storage_key).bind(bytes.len() as i64).bind(sha512).execute(&mut *tx).await?;
+    sqlx::query("UPDATE upstream_cache SET assets=$3 WHERE package_id=$1 AND version=$2")
+        .bind(&id)
+        .bind(&version)
+        .bind(parsed.assets)
+        .execute(&mut *tx)
+        .await?;
     sqlx::query("SELECT refresh_upstream_search($1)")
         .bind(&id)
         .execute(&mut *tx)
