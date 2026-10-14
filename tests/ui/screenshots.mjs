@@ -19,7 +19,7 @@ const profiles=await api('/api/profiles');
 let profile=profiles.find(p => p.name === 'Acme Engineering');
 if (!profile) profile=await api('/api/profiles',{method:'POST',body:{name:'Acme Engineering'}});
 const createKey = (label,scopes,prefix,days) => api(`/api/profiles/${profile.id}/keys`,{method:'POST',body:{label,scopes,packagePrefix:prefix,expiresAt:new Date(Date.now()+days*86400000).toISOString()}});
-const publishing=await createKey('GitHub Actions · Releases',['package:push','package:unlist'],'acme.',90);
+const publishing=await createKey('GitHub Actions · Releases',['package:push','package:unlist','package:read','package:deprecate'],'acme.',90);
 await createKey('Local development',['package:push'],'acme.',30);
 await createKey('AI package discovery',['mcp:read'],'',30);
 
@@ -37,11 +37,12 @@ import sys,json,io,zipfile
 from xml.sax.saxutils import escape
 p=json.loads(sys.stdin.read())
 deps='<dependencies><group targetFramework="net8.0"><dependency id="Acme.Core" version="[1.3.0,)" /></group></dependencies>' if p.get('dependency') else ''
-xml=f'<package><metadata><id>{escape(p["id"])}</id><version>{escape(p["version"])}</version><authors>Acme Engineering</authors><description>{escape(p["description"])}</description><tags>{escape(p["tags"])}</tags><license type="expression">MIT</license>{deps}</metadata></package>'
+xml=f'<package><metadata><id>{escape(p["id"])}</id><version>{escape(p["version"])}</version><authors>Acme Engineering</authors><description>{escape(p["description"])}</description><tags>{escape(p["tags"])}</tags><license type="expression">MIT</license><readme>README.md</readme><repository type="git" url="https://github.com/acme/sample"/>{deps}</metadata></package>'
 out=io.BytesIO()
 with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED) as archive:
     archive.writestr(p['id']+'.nuspec',xml)
     archive.writestr('lib/net8.0/_._',b'')
+    archive.writestr('README.md',f'# {p["id"]}\n\n{p["description"]}\n\n## Get started\n\n~~~bash\ndotnet add package {p["id"]} --version {p["version"]}\n~~~\n\n## Designed for your team\n\n- Predictable versioning and small dependencies.\n- Clear .NET 8 integration.\n- Published from your own package workspace.\n\nThis is an illustrative documentation package.\n')
 sys.stdout.buffer.write(out.getvalue())
 `;
 for (const fixture of fixtures) {
@@ -49,6 +50,17 @@ for (const fixture of fixtures) {
   const response=await fetch(`${base}/api/v2/package`,{method:'PUT',headers:{'X-NuGet-ApiKey':publishing.key},body});
   if (![201,409].includes(response.status)) throw new Error(`Fixture upload: ${response.status} ${await response.text()}`);
 }
+const team=await api('/api/profiles',{method:'POST',body:{name:'Application Team'}});
+const platform=await api('/api/feeds',{method:'POST',body:{name:'platform',private:true}});
+const publicFeed=await api('/api/feeds',{method:'POST',body:{name:'open-source',private:false}});
+await api(`/api/feeds/${platform.id}/members/${profile.id}`,{method:'PUT',body:{role:'administrator'}});
+await api(`/api/feeds/${platform.id}/members/${team.id}`,{method:'PUT',body:{role:'reader'}});
+await api(`/api/feeds/${publicFeed.id}/members/${profile.id}`,{method:'PUT',body:{role:'publisher'}});
+await api('/api/trusted-publishing',{method:'POST',body:{profileId:profile.id,name:'GitHub Actions · Platform releases',repository:'acme/platform',repositoryId:'123456',ownerId:'7890',workflow:'.github/workflows/publish.yml',gitRef:'refs/heads/main',packagePrefix:'Acme.',feedId:platform.id}});
+await api('/api/webhooks',{method:'POST',body:{name:'Release pipeline',url:'https://ci.example.com/events/packages',secretEnv:'WEBHOOK_RELEASE_SIGNING_KEY',events:['package.published'],enabled:false}});
+await api('/api/cache/policy',{method:'PATCH',body:{enabled:false,maxBytes:1024*1024*1024,idleDays:30}});
+await api('/api/audit/import',{method:'POST',body:{'acme.json':[{severity:2,versions:'[2.4.0]',url:'https://github.com/advisories/GHSA-example'}]}});
+await api('/api/packages/acme.core/1.2.0/deprecation',{method:'PUT',body:{reasons:['Legacy'],message:'Move to Acme.Core 1.3.0 for current support.',alternatePackage:{id:'Acme.Core',range:'[1.3.0,)'}}});
 const browser=await chromium.launch();
 try {
   const page=await browser.newPage({viewport:{width:1440,height:1040},deviceScaleFactor:1});
@@ -61,6 +73,7 @@ try {
   await page.screenshot({path:`${output}/search.png`,fullPage:true});
   await page.goto(`${base}/packages/Acme.Json`);
   await expect(page.getByRole('heading',{name:'Version history',exact:true})).toBeVisible();
+  await expect(page.locator('.readme-content')).toContainText('Designed for your team');
   await page.screenshot({path:`${output}/package.png`,fullPage:true});
   await page.goto(`${base}/manage`);
   await page.getByLabel('API key',{exact:true}).fill(admin);
@@ -73,11 +86,15 @@ try {
   await page.getByRole('link',{name:'My packages',exact:true}).click();
   await expect(page.getByRole('button',{name:'Unlist',exact:true})).toHaveCount(7);
   await page.screenshot({path:`${output}/owned-packages.png`,fullPage:true});
+  for(const [tab,title,file] of [['feeds','Feeds & teams','feeds'],['trusted','Trusted Publishing','trusted-publishing'],['events','Audit log','audit-log'],['webhooks','Webhooks','webhooks'],['security','Package security','security'],['cache','Package cache','cache-policy']]) {
+    await page.getByRole('link',{name:title,exact:true}).click();await expect(page.getByRole('heading',{name:title,exact:true})).toBeVisible();await expect(page.locator('.loading')).toHaveCount(0);await page.screenshot({path:`${output}/${file}.png`,fullPage:true});
+  }
+  await page.goto(`${base}/packages/Acme.Core/1.2.0`);await expect(page.getByText('Deprecated package version',{exact:true})).toBeVisible();await page.screenshot({path:`${output}/deprecation.png`,fullPage:true});
   await page.setViewportSize({width:390,height:844});
   await page.goto(`${base}/`);
   await expect(page.locator('.package-row')).toHaveCount(4);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({path:`${output}/mobile.png`,fullPage:true});
   expect(errors).toEqual([]);
-  console.log('Captured six real application screenshots with demonstration data.');
+  console.log('Captured thirteen real application screenshots with demonstration data.');
 } finally { await browser.close(); }

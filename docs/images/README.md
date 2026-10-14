@@ -12,6 +12,13 @@ These PNGs are real Chromium captures of the running NuShelf application. They a
 | [mobile.png](mobile.png) | Responsive gallery at a 390-pixel viewport. |
 | [upstream-sources.png](upstream-sources.png) | Source editor, routing controls and connection testing. |
 | [upstream-cache.png](upstream-cache.png) | Cached archives and their upstream origins. |
+| [feeds.png](feeds.png) | Public/private feeds and team membership. |
+| [trusted-publishing.png](trusted-publishing.png) | GitHub Actions policies and temporary-key workflow. |
+| [audit-log.png](audit-log.png) | Sanitized management history and HTTP outcomes. |
+| [webhooks.png](webhooks.png) | Signed receiver configuration and delivery history. |
+| [security.png](security.png) | NuGet Audit mirroring and synchronization status. |
+| [cache-policy.png](cache-policy.png) | Soft quotas, idle eviction and cleanup controls. |
+| [deprecation.png](deprecation.png) | Version deprecation and replacement guidance. |
 
 The `Acme.*` packages and `Acme Engineering` profile are disposable examples created through the application API. They illustrate registry metadata and are not released .NET libraries. The upstream screenshots come from Docker browser tests with a generated .NET proxy fixture, captured by `tests/ui/upstreams.spec.js` after the real .NET test. Statistics come from actual fixture records. Only masked API key hints are visible; full credentials are not shown.
 
@@ -28,7 +35,7 @@ docker compose -f compose.test.yml --profile ui run --rm --no-deps ui node scree
 
 The [capture script](../../tests/ui/screenshots.mjs) publishes sample archives, creates example credentials, waits for each real UI screen, captures desktop/mobile views, and checks for browser errors and mobile overflow. Output goes to ignored `test-results/documentation/`.
 
-Review the captures, then copy the six PNGs into `docs/images/`. The main application database and credentials are not used. Stop the test stack afterward:
+Review the captures, then copy the thirteen PNGs into `docs/images/`. The main application database and credentials are not used. Stop the test stack afterward:
 
 ```bash
 docker compose -f compose.test.yml --profile e2e --profile ui down

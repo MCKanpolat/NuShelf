@@ -1,5 +1,11 @@
 # Local Docker search measurements
 
+## Advanced-feature regression run
+
+After adding named feeds, audit data, maintenance, webhooks, rich package pages, deprecation and Trusted Publishing, the complete HTTP suite passed on 2026-10-14 with 50,000 package IDs, 50,202 versions and 200,000 search documents. All 33 case/concurrency phases passed (3,300 measured requests, zero errors). At 32 clients, p95 was 59.05 ms for exact-ID search, 313.59 ms for full-text search and 58.04 ms for MCP search.
+
+The [full report](performance/advanced-features-results.md) and [JSON results](performance/advanced-features-results.json) record the environment, budgets and every phase. This measures the root-registry path with the advanced features installed; it does not benchmark OIDC exchange, webhook delivery or storage cleanup, and does not establish production latency guarantees.
+
 This document distinguishes the original service-layer benchmark from the opt-in HTTP regression suite. Their latency numbers are not interchangeable: the HTTP suite uses a release build and also transfers, parses, and checks each response.
 
 ## HTTP performance regression suite

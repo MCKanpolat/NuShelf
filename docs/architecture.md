@@ -29,6 +29,12 @@ flowchart LR
 | `storage` | Provider selection behind `Arc<dyn ObjectStore>` |
 | `mcp` | Read-only stateless HTTP MCP protocol |
 | `upstream` | Source routing, credential references, network validation, metadata/archival cache, private read grants and management |
+| `feeds` | Named-feed authorization, schema pools, shared identities and scoped object-store prefixes |
+| `audit` | NuGet vulnerability snapshots, fixed-source synchronization and affected-version lookup |
+| `maintenance` | Cache quota/idle eviction, protected versions, delayed deletion and bounded orphan scans |
+| `events` | Audit attempts, sanitized results, durable webhook outbox and signed delivery retries |
+| `assets` / `deprecation` | Safe Markdown and package assets, ownership-protected lifecycle metadata |
+| `trusted` | GitHub JWKS/signature and claim verification, token replay prevention and temporary feed-bound credentials |
 | `lib` / `main` | Router, security headers, concurrency bound, startup/migrations/shutdown |
 | `web` | Buildless gallery and management UI embedded into the binary |
 
@@ -47,6 +53,8 @@ Readers only observe committed metadata. PostgreSQL constraints and locks cover 
 Normalized URL identity is lowercase and drops build metadata. Display metadata keeps normalized full versions. Precedence supports four numeric components and case-insensitive NuGet prerelease identifiers. Numeric prerelease identifiers sort numerically; releases sort after prereleases for the same numeric version. Search has separate channels to exclude SemVer2 packages for clients that do not advertise `semVerLevel=2.0.0`.
 
 ## Search
+
+Named feeds reuse registry operations against isolated PostgreSQL schemas and object-store prefixes. Shared identities, feed memberships, audit snapshots, events and Trusted Publishing policies live in `public`. Feed-specific package/cache migrations run separately from root migrations. Prefix-limited named-feed reads filter search and protect direct package/assets/MCP lookup paths. New private-feed requests re-check current membership rather than caching authorization.
 
 The table has at most four records per package ID instead of one record per historical version. Latest records are updated transactionally on publish and visibility changes. GIN indexes serve weighted `tsvector` and `pg_trgm` matching; B-tree prefix/recent indexes serve appropriate queries. Inputs use prepared bind parameters, literal wildcard escaping, deterministic tie-breaking and bounded pagination. Search count and page use one repeatable-read snapshot. Per-result version lists are fetched by package ID using indexed lookups.
 

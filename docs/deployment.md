@@ -62,7 +62,9 @@ Profile keys authenticate publishing and MCP requests. The administrator credent
 | --- | --- |
 | `package:push` | Publish packages. |
 | `package:unlist` | Unlist or relist owned versions. |
-| `package:read` | Read private upstream caches granted to this profile. |
+| `package:read` | Read private feeds with membership, and private upstream caches granted to this profile. |
+| `package:deprecate` | Deprecate local versions and recommend alternatives. |
+| `feeds:manage` | Manage settings and membership when the profile is a feed administrator. |
 | `mcp:read` | Call MCP tools. |
 | `keys:manage` | Manage the profile name and profile keys. |
 
@@ -229,10 +231,10 @@ See [screenshot capture instructions](images/README.md) to regenerate documentat
 
 ## Operational boundaries
 
-- Local package reads and discovery are public. Private upstream caches use source grants and `package:read`; see [upstream configuration](upstreams.md).
-- There is no password/OIDC sign-in, email flow, or public self-registration.
+- Root-registry reads and discovery are public. Named feeds support private local packages, isolated namespaces and team membership; see [named feeds](feeds.md). Private upstream caches use source grants and `package:read`; see [upstream configuration](upstreams.md).
+- Browser sign-in uses API keys; password/SSO, email flows and public self-registration are not implemented. GitHub Actions OIDC is supported for [Trusted Publishing](trusted-publishing.md).
 - The V3 API and V2-shaped publication endpoint are implemented; legacy OData V2 feeds and symbol serving are not.
-- Storage upload completes before metadata commits. An interruption can leave an unreferenced blob; automated orphan cleanup is not implemented.
+- Storage upload completes before metadata commits. An interruption can leave an unreferenced blob; orphan cleanup is available through opt-in [cache maintenance](cache-maintenance.md).
 - Backups need both PostgreSQL and package storage. Provider changes require explicit migration.
 - Readiness validates PostgreSQL, not storage permissions. Validate actual cloud accounts separately.
 - Configure HTTPS, request/rate limits, and proxy body/timeout limits for hosted environments.

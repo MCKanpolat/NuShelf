@@ -10,6 +10,8 @@ Successful exchange returns `key`, `expiresAt` and `source`. The temporary key l
 
 ## Workflow example
 
+A token must match exactly one enabled policy. Use distinct workflow/ref/environment combinations for separate publishing targets; overlapping policies are rejected rather than selecting a target implicitly.
+
 Replace the registry URL below and create a policy for this repository's IDs, `.github/workflows/publish.yml`, `refs/heads/main` and the desired package prefix. The runner needs HTTPS access to your registry; use a self-hosted runner for an internal deployment. Retrieve numeric IDs from GitHub's repository/owner APIs; names alone are not sufficient.
 
 ```yaml

@@ -49,7 +49,7 @@ Inspired by [BaGet](https://github.com/loic-sharma/BaGet)'s straightforward depl
 | **MCP tools** | Let an authenticated MCP client search packages, inspect metadata and dependencies, and list versions through stateless Streamable HTTP. |
 | **Docker workflow** | Run the Rust service and PostgreSQL without installing either on the host. Separate test services cover filesystem and S3 storage, a real .NET client, and Chromium. |
 
-Local package discovery and downloads are **public**. Private upstream caches require a profile grant and `package:read`; publishing and credential administration use profile or administrator keys. MCP requires `mcp:read` and respects private read permissions.
+Root-registry discovery and downloads are **public**. Named feeds can be private and require membership plus `package:read`. Private upstream caches additionally require a source grant. Publishing and credential administration use profile or administrator keys; MCP requires `mcp:read` and respects private read permissions.
 
 ## Screenshots
 
@@ -88,6 +88,39 @@ Create separate credentials for CI publishing, local development, and AI package
 <p align="center">
   <img src="docs/images/mobile.png" alt="NuShelf home page on a 390-pixel-wide mobile viewport" width="300">
 </p>
+
+</details>
+
+### Teams, security and automation
+
+<details>
+<summary><strong>Team feeds, security and automation screenshots</strong></summary>
+
+**Private team feeds:** separate package namespaces and explicit reader, publisher and administrator membership.
+
+![Private and public team feeds](docs/images/feeds.png)
+
+**Trusted Publishing:** approve a GitHub Actions workflow and exchange OIDC tokens for temporary credentials.
+
+![GitHub Actions Trusted Publishing policies](docs/images/trusted-publishing.png)
+
+**Package security:** mirror vulnerability data for NuGet Audit, including clients without direct internet access.
+
+![NuGet Audit advisory management](docs/images/security.png)
+
+**Cache policies:** preview quota and last-access cleanup while protecting required versions.
+
+![Cache policy management and cleanup preview](docs/images/cache-policy.png)
+
+**Audit history and webhooks:** inspect management activity and configure signed event receivers.
+
+![Management audit log](docs/images/audit-log.png)
+
+![Signed webhook receiver management](docs/images/webhooks.png)
+
+**Deprecation:** guide consumers to a supported replacement while preserving existing restores.
+
+![Package deprecation and replacement recommendation](docs/images/deprecation.png)
 
 </details>
 
@@ -306,17 +339,21 @@ docker compose -f compose.test.yml --profile e2e up --build \
 # Run after the .NET test, which produces its package fixture.
 docker compose -f compose.test.yml --profile ui run --rm --build ui
 
+# Authenticated private-feed restore, NuGet Audit and deprecation metadata.
+docker compose -f compose.test.yml --profile e2e run --rm \
+  --entrypoint bash e2e /tests/audit-client.sh
+
 # Stop the isolated test stack.
 docker compose -f compose.test.yml --profile e2e --profile ui down
 ```
 
-Tests exercise NuGet version ordering, malformed ZIP/XML handling, ownership, key scopes and revocation, concurrent publication, search, autocomplete, listing changes, downloads, and MCP. The [CI workflow](.github/workflows/ci.yml) defines Docker formatting, Clippy, integration, .NET, and browser checks.
+Tests exercise NuGet version ordering, malformed ZIP/XML handling, ownership, key scopes/revocation, feed isolation, concurrent publication/cache fills, search, downloads, MCP, advisory snapshots, cache protection/cleanup, signed webhook retries, safe README rendering, deprecation and RSA-verified OIDC issuance/replay prevention. Seven Chromium scenarios cover gallery and management flows. The [CI workflow](.github/workflows/ci.yml) defines Docker formatting, Clippy, integration, real .NET, browser and performance checks.
 
 ## Current scope
 
-**Implemented:** NuGet V3 resources, V2-shaped push/delete endpoints, local package ownership, scoped keys, gallery and management UI, PostgreSQL search, pluggable storage, multiple upstreams with read-through cache and private grants, and read-only MCP.
+**Implemented:** NuGet V3 resources, V2-shaped push/delete endpoints, package ownership, scoped keys, private team feeds and roles, GitHub OIDC Trusted Publishing, gallery/management UI, sanitized package READMEs/icons, deprecation metadata, locally mirrored NuGet Audit data, audit history/signed webhooks, PostgreSQL search, pluggable storage, multiple upstreams with read-through cache/private grants, quota and orphan maintenance, and read-only MCP.
 
-**Not implemented yet:** legacy OData V2 feeds, symbol serving / `.snupkg`, proactive/full upstream mirroring, federated upstream keyword search, NuGet catalog feeds, package signature validation, password/OIDC login, email flows, public self-registration, and private reads in the root registry (named feeds support private local packages).
+**Not implemented yet:** legacy OData V2 feeds, symbol serving / `.snupkg`, proactive/full upstream mirroring, federated upstream keyword search, NuGet catalog feeds, package signature validation, password/OIDC browser sign-in, email flows, public self-registration, and private reads in the root registry (named feeds support private local packages).
 
 An interrupted upload can leave an unreferenced blob after storage succeeds but before the database commits; orphan cleanup runs when cache maintenance is enabled. Readiness checks PostgreSQL rather than remote storage write permissions. The deployment guide covers these operational boundaries.
 
