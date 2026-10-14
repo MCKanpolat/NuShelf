@@ -427,7 +427,7 @@ pub async fn cache_list(
     headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
     admin(&state, &headers)?;
-    let rows:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',c.catalog->>'id','version',c.version,'sourceId',s.id,'source',s.name,'private',s.private,'size',c.size,'downloads',c.downloads,'cachedAt',c.cached_at) FROM upstream_cache c JOIN upstream_metadata m USING(package_id) JOIN upstream_sources s ON s.id=m.source_id ORDER BY c.cached_at DESC LIMIT 500").fetch_all(&state.db).await?;
+    let rows:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',c.catalog->>'id','version',c.version,'sourceId',s.id,'source',s.name,'private',s.private,'size',c.size,'downloads',c.downloads,'cachedAt',c.cached_at,'protected',c.protected,'lastAccessedAt',c.last_accessed_at) FROM upstream_cache c JOIN upstream_metadata m USING(package_id) JOIN upstream_sources s ON s.id=m.source_id ORDER BY c.cached_at DESC LIMIT 500").fetch_all(&state.db).await?;
     Ok(Json(json!(rows)))
 }
 pub async fn purge(

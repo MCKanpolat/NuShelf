@@ -3,6 +3,7 @@ pub mod auth;
 pub mod config;
 pub mod error;
 pub mod feeds;
+pub mod maintenance;
 pub mod mcp;
 pub mod package;
 pub mod registry;
@@ -48,6 +49,9 @@ pub fn router(state: AppState) -> Router {
             limit_uploads,
         ));
     Router::new()
+        .route("/api/cache/policy",get(maintenance::policy).patch(maintenance::settings))
+        .route("/api/cache/maintenance",post(maintenance::run))
+        .route("/api/cache/{id}/{version}/protection",put(maintenance::protect))
         .route("/v3/vulnerabilities/index.json",get(audit::index))
         .route("/v3/vulnerabilities/{file}",get(audit::page))
         .route("/api/audit",get(audit::status).patch(audit::settings))

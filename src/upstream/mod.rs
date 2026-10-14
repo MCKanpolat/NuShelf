@@ -86,7 +86,7 @@ pub async fn download(
             Body::empty().into_response()
         } else {
             let content = state.storage.get(&path).await?;
-            sqlx::query("UPDATE upstream_cache SET downloads=downloads+1 WHERE package_id=$1 AND version=$2").bind(&id).bind(&version).execute(&state.db).await?;
+            sqlx::query("UPDATE upstream_cache SET downloads=downloads+1,last_accessed_at=now() WHERE package_id=$1 AND version=$2").bind(&id).bind(&version).execute(&state.db).await?;
             Body::from_stream(content.into_stream()).into_response()
         };
         response.headers_mut().insert(

@@ -213,6 +213,27 @@ pub async fn initialize(state: &AppState) -> ApiResult<()> {
     }
     Ok(())
 }
+pub async fn background_states(state: &AppState) -> ApiResult<Vec<AppState>> {
+    let feeds: Vec<Feed> =
+        sqlx::query_as("SELECT id,name,private,enabled FROM public.feeds WHERE enabled")
+            .fetch_all(&state.db)
+            .await?;
+    let mut result = Vec::new();
+    for feed in feeds {
+        let mut scoped = state.clone();
+        scoped.db = pool(state, feed.id).await?;
+        scoped.feed = Some(feed.id);
+        let mut config = (*state.config).clone();
+        config.public_url = format!("{}/feeds/{}", config.public_url, feed.name);
+        scoped.config = Arc::new(config);
+        scoped.storage = Arc::new(PrefixStore::new(
+            state.storage.clone(),
+            format!("feeds/{}", feed.id.simple()),
+        ));
+        result.push(scoped);
+    }
+    Ok(result)
+}
 pub async fn endpoint(
     State(state): State<AppState>,
     Path((name, path)): Path<(String, String)>,

@@ -46,6 +46,7 @@ async fn main() -> Result<()> {
         .map_err(|e| anyhow::anyhow!(e.1))?;
     let listener = tokio::net::TcpListener::bind(address).await?;
     nushelf::audit::worker(state.clone());
+    nushelf::maintenance::worker(state.clone());
     tracing::info!(%address,"NuShelf is ready");
     axum::serve(listener, router(state))
         .with_graceful_shutdown(shutdown())

@@ -225,7 +225,7 @@ async fn multi_source_read_through_cache_and_private_access() {
         };
         let state = AppState {
             db: db.clone(),
-            storage,
+            storage: storage.clone(),
             config: Arc::new(config),
             upload_slots: Arc::new(tokio::sync::Semaphore::new(4)),
             feeds: Arc::default(),
@@ -588,6 +588,133 @@ async fn multi_source_read_through_cache_and_private_access() {
                 .unwrap()
                 .status(),
             StatusCode::UNAUTHORIZED
+        );
+        sqlx::query("UPDATE upstream_cache SET cached_at=now()-interval '2 hours',last_accessed_at=now()-interval '40 days'").execute(&db).await.unwrap();
+        assert_eq!(
+            client
+                .put(format!("{base}/api/cache/secret.core/1.0.0/protection"))
+                .bearer_auth(ADMIN)
+                .json(&json!({"protected":true}))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            client
+                .patch(format!("{base}/api/cache/policy"))
+                .bearer_auth(ADMIN)
+                .json(&json!({"enabled":false,"maxBytes":1,"idleDays":30}))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            client
+                .post(format!("{base}/api/cache/maintenance"))
+                .json(&json!({}))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM upstream_cache")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+        let preview = response(
+            client
+                .post(format!("{base}/api/cache/maintenance"))
+                .bearer_auth(ADMIN)
+                .json(&json!({"dryRun":true,"orphans":true}))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::OK,
+        )
+        .await;
+        assert!(!preview["selected"].as_array().unwrap().is_empty());
+        assert!(
+            preview["selected"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|p| p["id"] != "secret.core")
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM upstream_cache")
+                .fetch_one(&db)
+                .await
+                .unwrap(),
+            count
+        );
+        let removed = response(
+            client
+                .post(format!("{base}/api/cache/maintenance"))
+                .bearer_auth(ADMIN)
+                .json(&json!({"dryRun":false}))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::OK,
+        )
+        .await;
+        assert_eq!(removed["deletedObjects"], 0);
+        assert_eq!(removed["quotaSatisfied"], false);
+        assert!(
+            sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM upstream_metadata WHERE package_id='public.shared')"
+            )
+            .fetch_one(&db)
+            .await
+            .unwrap()
+        );
+        assert!(
+            !sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM upstream_cache WHERE package_id='public.shared')"
+            )
+            .fetch_one(&db)
+            .await
+            .unwrap()
+        );
+        let local_key: String = sqlx::query_scalar(
+            "SELECT storage_key FROM package_versions WHERE package_id='local.owned'",
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO storage_cleanup(storage_key,not_before) VALUES($1,now()-interval '1 day')",
+        )
+        .bind(&local_key)
+        .execute(&db)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE storage_cleanup SET not_before=now()-interval '1 day'")
+            .execute(&db)
+            .await
+            .unwrap();
+        let cleanup = response(
+            client
+                .post(format!("{base}/api/cache/maintenance"))
+                .bearer_auth(ADMIN)
+                .json(&json!({"dryRun":false}))
+                .send()
+                .await
+                .unwrap(),
+            StatusCode::OK,
+        )
+        .await;
+        assert!(cleanup["deletedObjects"].as_i64().unwrap() > 0);
+        assert!(
+            storage
+                .head(&object_store::path::Path::from(local_key))
+                .await
+                .is_ok()
         );
         let purged = response(
             client
