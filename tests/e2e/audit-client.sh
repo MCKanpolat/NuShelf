@@ -7,7 +7,7 @@ base=http://registry:5000
 name="audit-$(date +%s)"
 profile=$(curl --fail-with-body -s "$base/api/profiles" -H "Authorization: Bearer $admin" -H 'Content-Type: application/json' -d "{\"name\":\"$name\"}")
 profile_id=$(echo "$profile" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
-credential=$(curl --fail-with-body -s "$base/api/profiles/$profile_id/keys" -H "Authorization: Bearer $admin" -H 'Content-Type: application/json' -d '{"label":"audit client","scopes":["package:push","package:read"]}')
+credential=$(curl --fail-with-body -s "$base/api/profiles/$profile_id/keys" -H "Authorization: Bearer $admin" -H 'Content-Type: application/json' -d '{"label":"audit client","scopes":["package:push","package:read","package:deprecate"]}')
 key=$(echo "$credential" | sed -n 's/.*"key":"\([^"]*\)".*/\1/p')
 feed=$(curl --fail-with-body -s "$base/api/feeds" -H "Authorization: Bearer $admin" -H 'Content-Type: application/json' -d "{\"name\":\"$name\"}")
 feed_id=$(echo "$feed" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
@@ -30,5 +30,8 @@ dotnet add AuditConsumer package "$package" --version 1.0.0
 dotnet nuget locals all --clear
 dotnet restore AuditConsumer --no-cache --force -p:NuGetAudit=true -p:NuGetAuditLevel=low 2>&1 | tee audit-output.txt
 grep -q 'NU1903' audit-output.txt
+curl --fail-with-body -s -X PUT "$base/feeds/$name/api/packages/$package_lower/1.0.0/deprecation" -H "Authorization: Bearer $key" -H 'Content-Type: application/json' -d '{"reasons":["Legacy"],"message":"Test deprecation","alternatePackage":{"id":"NuShelf.Replacement","range":"*"}}'
+dotnet list AuditConsumer package --deprecated 2>&1 | tee deprecation-output.txt
+grep -q 'NuShelf.Replacement' deprecation-output.txt
 if [ -d /artifacts ]; then cp audit-output.txt /artifacts/audit-client-output.txt; fi
-echo 'PASS: authenticated private-feed restore reports NU1903 using locally hosted vulnerability data.'
+echo 'PASS: authenticated private-feed restore reports NU1903 and the client detects deprecation metadata.'

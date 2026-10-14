@@ -251,6 +251,12 @@ pub fn clean_catalog(state: &AppState, id: &str, entry: &Value) -> ApiResult<Val
             result[key] = value.clone();
         }
     }
+    if let Some(raw) = entry.get("deprecation")
+        && let Ok(input) = serde_json::from_value::<crate::deprecation::Input>(raw.clone())
+        && let Ok(value) = crate::deprecation::value(input)
+    {
+        result["deprecation"] = value;
+    }
     for key in ["projectUrl", "licenseUrl"] {
         if let Some(value) = entry[key].as_str()
             && url::Url::parse(value).is_ok_and(|u| {

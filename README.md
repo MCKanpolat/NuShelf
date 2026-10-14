@@ -37,6 +37,7 @@ Inspired by [BaGet](https://github.com/loic-sharma/BaGet)'s straightforward depl
 | **Private team feeds** | Isolate package namespaces, search, upstreams and storage by feed. Grant profiles reader, publisher or administrator membership; private reads require scoped credentials. |
 | **Workspace management** | Create publisher profiles, edit profile names, manage credentials, and list or unlist owned package versions from a dedicated UI. |
 | **Profile API keys** | Give each application its own key with explicit permissions, an optional package prefix, and an expiration date. Revoke keys independently. Full keys are shown once and stored as SHA-256 digests. |
+| **Deprecation management** | Mark versions as deprecated, recommend replacement packages, and expose metadata to NuGet clients while preserving existing restores. |
 | **Package ownership** | The first publishing profile owns a package ID. Other profiles cannot publish versions under that ID. Published versions are immutable; unlisting preserves existing restores. |
 | **PostgreSQL search** | Weighted full-text search and indexed ID prefixes run first; trigram similarity provides a fallback. Search documents update in the same transaction as package metadata. |
 | **Flexible storage** | Choose a local filesystem, AWS S3 or an S3-compatible service, Azure Blob Storage, or Google Cloud Storage through a shared storage interface. Package downloads are streamed. |
@@ -323,6 +324,7 @@ An interrupted upload can leave an unreferenced blob after storage succeeds but 
 | Guide | Contents |
 | --- | --- |
 | [Deployment and usage](docs/deployment.md) | Configuration, first profile, NuGet clients, storage credentials, MCP transport, and operations. |
+| [Deprecation](docs/deprecation.md) | Version lifecycle, replacement recommendations and NuGet client metadata. |
 | [Rich package pages](docs/package-pages.md) | Embedded README, icons, framework metadata and safe rendering. |
 | [Audit log and webhooks](docs/events.md) | Mutation history, signed events, subscriptions and delivery retries. |
 | [Cache maintenance](docs/cache-maintenance.md) | Soft quotas, last-access eviction, protected versions and orphan cleanup. |

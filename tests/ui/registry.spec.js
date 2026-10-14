@@ -66,6 +66,18 @@ with zipfile.ZipFile('/results/ui-sample.nupkg') as source, zipfile.ZipFile('/tm
   await page.screenshot({path:'/results/package-desktop.png',fullPage:true});
   await page.getByRole('link',{name:'Manage workspace'}).click();
   await page.getByRole('link',{name:'My packages',exact:true}).click();
+  await page.getByRole('button',{name:'Deprecate',exact:true}).click();
+  await page.getByLabel('Message',{exact:true}).fill('Move to the supported package.');
+  await page.getByLabel('Alternative package (optional)',{exact:true}).fill('Example.Replacement');
+  await page.getByRole('button',{name:'Save deprecation',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Clear deprecation',exact:true})).toBeVisible();
+  await page.getByRole('link',{name:uiPackageId,exact:true}).click();
+  await expect(page.getByText('Deprecated package version',{exact:true})).toBeVisible();
+  await expect(page.getByText('Move to the supported package.',{exact:false})).toBeVisible();
+  await page.getByRole('link',{name:'Manage workspace'}).click();
+  await page.getByRole('link',{name:'My packages',exact:true}).click();
+  await page.getByRole('button',{name:'Clear deprecation',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Clear deprecation',exact:true})).toHaveCount(0);
   await page.getByRole('button',{name:'Unlist',exact:true}).click();
   await expect(page.getByRole('button',{name:'Relist',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Relist',exact:true}).click();

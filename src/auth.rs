@@ -19,6 +19,7 @@ use uuid::Uuid;
 pub const SCOPES: &[&str] = &[
     "package:push",
     "package:unlist",
+    "package:deprecate",
     "package:read",
     "mcp:read",
     "keys:manage",

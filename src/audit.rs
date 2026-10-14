@@ -45,6 +45,9 @@ fn range_bounds(text: &str) -> ApiResult<(Option<String>, bool, Option<String>, 
         Ok((Some(NuGetVersion::parse(text)?.sort_key), true, None, false))
     }
 }
+pub fn validate_range(text: &str) -> ApiResult<()> {
+    range_bounds(text).map(|_| ())
+}
 pub fn affected(range: &str, version: &str) -> bool {
     let Ok((low, li, high, hi)) = range_bounds(range) else {
         return false;
@@ -337,11 +340,12 @@ pub fn worker(state: AppState) {
     });
 }
 pub async fn advisories(state: &AppState, id: &str) -> ApiResult<Value> {
-    let row: Option<Value> =
-        sqlx::query_scalar("SELECT COALESCE(data->$1,'[]'::jsonb) FROM public.audit_snapshots WHERE current")
-            .bind(id.to_ascii_lowercase())
-            .fetch_optional(&state.db)
-            .await?;
+    let row: Option<Value> = sqlx::query_scalar(
+        "SELECT COALESCE(data->$1,'[]'::jsonb) FROM public.audit_snapshots WHERE current",
+    )
+    .bind(id.to_ascii_lowercase())
+    .fetch_optional(&state.db)
+    .await?;
     Ok(row.filter(|v| v.is_array()).unwrap_or_else(|| json!([])))
 }
 pub async fn decorate(state: &AppState, result: &mut Value) -> ApiResult<()> {

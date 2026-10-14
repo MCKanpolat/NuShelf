@@ -2,6 +2,7 @@ pub mod assets;
 pub mod audit;
 pub mod auth;
 pub mod config;
+pub mod deprecation;
 pub mod error;
 pub mod events;
 pub mod feeds;
@@ -94,6 +95,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/packages/{id}",get(upstream::details))
         .route("/api/packages/{id}/{version}/assets",get(assets::details))
         .route("/api/packages/{id}/{version}/icon",get(assets::icon))
+        .route("/api/packages/{id}/{version}/deprecation",put(deprecation::put).delete(deprecation::clear))
         .route("/api/upstreams",get(upstream::sources::list).post(upstream::sources::create))
         .route("/api/upstreams/test",post(upstream::sources::test_input))
         .route("/api/upstreams/cache",get(upstream::sources::cache_list))

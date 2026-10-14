@@ -44,6 +44,7 @@ pub struct PackageRow {
     pub total_downloads: i64,
     pub published_at: DateTime<Utc>,
     pub owner_name: String,
+    pub deprecation: Option<Value>,
 }
 const ROW_SELECT: &str = "SELECT v.*, p.display_id, p.downloads AS total_downloads, o.name AS owner_name FROM package_versions v JOIN packages p ON p.id=v.package_id JOIN profiles o ON o.id=p.owner_id";
 
@@ -79,7 +80,11 @@ pub fn catalog(state: &AppState, p: &PackageRow) -> Value {
             g
         })
         .collect();
-    json!({"@id":leaf,"id":p.display_id,"version":p.display_version,"title":p.title,"description":p.description,"authors":p.authors,"tags":p.tags.split_whitespace().collect::<Vec<_>>(),"listed":p.listed,"published":p.published_at,"projectUrl":p.project_url,"licenseExpression":p.license_expression,"dependencyGroups":groups,"packageContent":content_url(state,p)})
+    let mut entry = json!({"@id":leaf,"id":p.display_id,"version":p.display_version,"title":p.title,"description":p.description,"authors":p.authors,"tags":p.tags.split_whitespace().collect::<Vec<_>>(),"listed":p.listed,"published":p.published_at,"projectUrl":p.project_url,"licenseExpression":p.license_expression,"dependencyGroups":groups,"packageContent":content_url(state,p)});
+    if let Some(deprecation) = &p.deprecation {
+        entry["deprecation"] = deprecation.clone();
+    }
+    entry
 }
 fn embedded_leaf(state: &AppState, p: &PackageRow) -> Value {
     json!({"@id":format!("{}/v3/registration/{}/{}.json",state.config.public_url,p.package_id,p.version),"catalogEntry":catalog(state,p),"packageContent":content_url(state,p)})
@@ -575,7 +580,7 @@ pub async fn details_value(state: &AppState, id: &str) -> ApiResult<Value> {
     let mut result = catalog(state, latest);
     result["owner"] = json!(latest.owner_name);
     result["totalDownloads"] = json!(latest.total_downloads);
-    result["versions"] = json!(rows.iter().rev().map(|p| json!({"version":p.display_version,"normalizedVersion":p.version,"listed":p.listed,"prerelease":p.prerelease,"published":p.published_at,"downloads":p.downloads,"size":p.size,"dependencies":p.dependencies,"downloadUrl":content_url(state,p)})).collect::<Vec<_>>());
+    result["versions"] = json!(rows.iter().rev().map(|p| json!({"version":p.display_version,"normalizedVersion":p.version,"listed":p.listed,"prerelease":p.prerelease,"published":p.published_at,"downloads":p.downloads,"size":p.size,"dependencies":p.dependencies,"deprecation":p.deprecation,"downloadUrl":content_url(state,p)})).collect::<Vec<_>>());
     crate::audit::decorate(state, &mut result).await?;
     Ok(result)
 }
@@ -605,6 +610,6 @@ pub async fn owned_packages(
             return Err(ApiError::forbidden("This profile belongs to another owner"));
         }
     }
-    let rows: Vec<Value> = sqlx::query_scalar("SELECT jsonb_build_object('id',p.display_id,'downloads',p.downloads,'versions',(SELECT jsonb_agg(jsonb_build_object('version',display_version,'listed',listed,'downloads',downloads,'published',published_at) ORDER BY version_sort DESC) FROM package_versions WHERE package_id=p.id)) FROM packages p WHERE owner_id=$1 ORDER BY p.id").bind(profile).fetch_all(&state.db).await?;
+    let rows: Vec<Value> = sqlx::query_scalar("SELECT jsonb_build_object('id',p.display_id,'downloads',p.downloads,'versions',(SELECT jsonb_agg(jsonb_build_object('version',display_version,'listed',listed,'downloads',downloads,'published',published_at,'deprecation',deprecation) ORDER BY version_sort DESC) FROM package_versions WHERE package_id=p.id)) FROM packages p WHERE owner_id=$1 ORDER BY p.id").bind(profile).fetch_all(&state.db).await?;
     Ok(Json(json!(rows)))
 }

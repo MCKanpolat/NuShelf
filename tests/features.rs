@@ -131,6 +131,7 @@ async fn named_feeds_isolate_packages_storage_search_and_permissions() {
                 "package:push",
                 "package:read",
                 "package:unlist",
+                "package:deprecate",
                 "mcp:read",
                 "feeds:manage",
             ],
@@ -189,6 +190,75 @@ async fn named_feeds_isolate_packages_storage_search_and_permissions() {
             StatusCode::NOT_FOUND
         );
         let feed = format!("{base}/feeds/alpha");
+        let dep = json!({"reasons":["Legacy"],"message":"Use the replacement","alternatePackage":{"id":"Team.Next","range":"[2.0.0,)"}});
+        assert_eq!(
+            c.put(format!("{feed}/api/packages/team.core/1.0.0/deprecation"))
+                .bearer_auth(&reader)
+                .json(&dep)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            c.put(format!("{feed}/api/packages/team.core/1.0.0/deprecation"))
+                .bearer_auth(&publisher)
+                .json(&dep)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NO_CONTENT
+        );
+        let registration = json_response(
+            c.get(format!("{feed}/v3/registration/team.core/index.json"))
+                .bearer_auth(&publisher)
+                .send()
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(
+            registration["items"][0]["items"][0]["catalogEntry"]["deprecation"],
+            dep
+        );
+        assert_eq!(
+            registration["items"][0]["items"][0]["catalogEntry"]["listed"],
+            true
+        );
+        assert_eq!(
+            c.put(format!("{feed}/api/packages/team.core/1.0.0/deprecation"))
+                .bearer_auth(&publisher)
+                .json(&json!({"reasons":["BadReason"]}))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            c.delete(format!("{feed}/api/packages/team.core/1.0.0/deprecation"))
+                .bearer_auth(&publisher)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NO_CONTENT
+        );
+        let registration = json_response(
+            c.get(format!("{feed}/v3/registration/team.core/index.json"))
+                .bearer_auth(&publisher)
+                .send()
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(
+            registration["items"][0]["items"][0]["catalogEntry"]
+                .get("deprecation")
+                .is_none()
+        );
         let assets = json_response(
             c.get(format!("{feed}/api/packages/team.core/1.0.0/assets"))
                 .bearer_auth(&publisher)
@@ -498,9 +568,24 @@ async fn named_feeds_isolate_packages_storage_search_and_permissions() {
         assert!(!events.to_string().contains(&publisher));
         assert!(!events.to_string().contains(&reader));
         assert!(!events.to_string().contains(ADMIN));
-        let clean=json_response(c.get(format!("{base}/feeds/beta/api/packages/team.core")).send().await.unwrap()).await;
-        assert_eq!(clean["versions"][0]["vulnerabilities"],json!([]));
-        assert_eq!(json_response(c.get(format!("{base}/api/audit/packages/not.in.database")).send().await.unwrap()).await,json!([]));
+        let clean = json_response(
+            c.get(format!("{base}/feeds/beta/api/packages/team.core"))
+                .send()
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(clean["versions"][0]["vulnerabilities"], json!([]));
+        assert_eq!(
+            json_response(
+                c.get(format!("{base}/api/audit/packages/not.in.database"))
+                    .send()
+                    .await
+                    .unwrap()
+            )
+            .await,
+            json!([])
+        );
         webhook_checks(&c, &base, &event_state).await;
         server.abort();
         db.close().await;
