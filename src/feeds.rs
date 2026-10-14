@@ -273,9 +273,15 @@ pub async fn endpoint(
         .bind(who.profile_id)
         .fetch_optional(&state.db)
         .await?;
-        let role = role.ok_or_else(|| ApiError::forbidden("Feed membership required"))?;
+        let role = if safe_read && !feed.private {
+            role.unwrap_or_else(|| "reader".into())
+        } else {
+            role.ok_or_else(|| ApiError::forbidden("Feed membership required"))?
+        };
         if safe_read {
-            who.require("package:read")?;
+            if feed.private {
+                who.require("package:read")?;
+            }
             read_prefix = who.package_prefix.clone();
         } else if role == "reader" {
             return Err(ApiError::forbidden("Publisher feed membership required"));

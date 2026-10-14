@@ -425,6 +425,15 @@ async fn named_feeds_isolate_packages_storage_search_and_permissions() {
             .unwrap();
         assert_eq!(
             c.get(format!("{base}/feeds/beta/v3/search"))
+                .bearer_auth(&outsider)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            c.get(format!("{base}/feeds/beta/v3/search"))
                 .send()
                 .await
                 .unwrap()
