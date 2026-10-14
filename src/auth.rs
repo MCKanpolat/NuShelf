@@ -22,6 +22,7 @@ pub const SCOPES: &[&str] = &[
     "package:read",
     "mcp:read",
     "keys:manage",
+    "feeds:manage",
 ];
 
 #[derive(FromRow, Clone)]

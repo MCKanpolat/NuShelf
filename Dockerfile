@@ -5,6 +5,7 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock* ./
 COPY src ./src
 COPY migrations ./migrations
+COPY feed-migrations ./feed-migrations
 COPY web ./web
 COPY tests ./tests
 COPY examples ./examples

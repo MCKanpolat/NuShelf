@@ -18,6 +18,7 @@ use serde_json::{Value, json};
 use sources::Reader;
 
 pub async fn versions_value(state: &AppState, reader: &Reader, id: &str) -> ApiResult<Value> {
+    crate::feeds::check_package(state, &package_id(id)?)?;
     match registry::versions(State(state.clone()), Path(id.into())).await {
         Ok(Json(value)) => Ok(value),
         Err(e) if e.0 == StatusCode::NOT_FOUND => {
@@ -170,6 +171,7 @@ pub async fn registration_leaf(
     }
 }
 pub async fn details_value(state: &AppState, reader: &Reader, id: &str) -> ApiResult<Value> {
+    crate::feeds::check_package(state, &package_id(id)?)?;
     match registry::details_value(state, id).await {
         Ok(value) => return Ok(value),
         Err(e) if e.0 == StatusCode::NOT_FOUND => {}
@@ -249,7 +251,8 @@ pub async fn search_value(
     } else {
         "d.search_vector @@ websearch_to_tsquery('simple',$2) OR d.package_id LIKE $3 ESCAPE '\\'"
     };
-    let mut filter = format!("d.channel=$1 AND ({primary}) AND {VISIBILITY}");
+    let prefix_filter = format!(" AND starts_with(d.package_id,'{}')", state.read_prefix);
+    let mut filter = format!("d.channel=$1 AND ({primary}) AND {VISIBILITY}{prefix_filter}");
     let mut count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {from} WHERE {filter}"))
         .bind(channel)
         .bind(&q)
@@ -260,8 +263,9 @@ pub async fn search_value(
         .fetch_one(&state.db)
         .await?;
     if count == 0 && q.len() >= 3 {
-        filter =
-            format!("d.channel=$1 AND d.package_id % $2 AND $3::text IS NOT NULL AND {VISIBILITY}");
+        filter = format!(
+            "d.channel=$1 AND d.package_id % $2 AND $3::text IS NOT NULL AND {VISIBILITY}{prefix_filter}"
+        );
         count = sqlx::query_scalar(&format!("SELECT count(*) FROM {from} WHERE {filter}"))
             .bind(channel)
             .bind(&q)
@@ -309,6 +313,7 @@ pub async fn autocomplete(
 ) -> ApiResult<Json<Value>> {
     let reader = Reader::from_headers(&state, &headers).await?;
     if let Some(id) = &query.id {
+        crate::feeds::check_package(&state, &package_id(id)?)?;
         if cache::local_exists(&state, &package_id(id)?).await? {
             return registry::autocomplete(State(state), Query(query)).await;
         }

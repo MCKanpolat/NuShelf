@@ -3,14 +3,16 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num = value => new Intl.NumberFormat('en-US').format(value || 0);
 const date = value => value ? new Date(value).toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}) : 'No expiration';
-const feed = `${location.origin}/v3/index.json`;
+const feedBase = location.pathname.match(/^\/feeds\/[^/]+/)?.[0] || "";
+const feed = `${location.origin}${feedBase}/v3/index.json`;
 let currentKey = '', identity = null, selectedProfile = '', profiles = [], generatedKey = '', routeGeneration = 0, toastTimer, upstreamSources = [];
-const scopeLabels = {'package:push':'Publish packages','package:unlist':'Unlist & relist packages','package:read':'Read private upstream packages','mcp:read':'Use MCP tools','keys:manage':'Manage profile & API keys'};
+const scopeLabels = {'package:push':'Publish packages','package:unlist':'Unlist & relist packages','package:read':'Read private packages','mcp:read':'Use MCP tools','keys:manage':'Manage profile & API keys','feeds:manage':'Manage feed membership'};
 const main = $('#main');
 
 async function api(path, options = {}, authenticated = false) {
+  if (feedBase && path.startsWith("/") && !path.startsWith("/api/feeds") && !path.startsWith(feedBase+"/")) path=feedBase+path;
   const headers = new Headers(options.headers || {});
-  if (authenticated || (currentKey && (path.startsWith('/v3/') || path.startsWith('/api/packages/')))) headers.set('Authorization', `Bearer ${currentKey}`);
+  if (authenticated || (currentKey && feedBase) || (currentKey && (path.startsWith('/v3/') || path.startsWith('/api/packages/')))) headers.set('Authorization', `Bearer ${currentKey}`);
   if (options.body && !(options.body instanceof FormData) && typeof options.body !== 'string') {
     headers.set('Content-Type','application/json'); options.body = JSON.stringify(options.body);
   }
@@ -71,6 +73,7 @@ async function detailPage(generation) {
     document.title = `${result.id} ${selected.version} · NuShelf`;
     const dependencies = selected.dependencies || [];
     main.innerHTML = `<div class="shell page-content"><div class="breadcrumbs"><a href="/packages">Packages</a> / ${esc(result.id)}</div><div class="detail-layout"><section><div class="detail-header"><div class="package-icon">${esc(result.id.slice(0,2).toUpperCase())}</div><div><h1>${esc(result.id)}</h1><p>by ${esc(result.owner)} · <span class="badge">${esc(selected.version)}</span> ${selected.listed ? '' : '<span class="badge red">Unlisted</span>'}</p></div></div><pre>dotnet add package ${esc(result.id)} --version ${esc(selected.version)} --source ${esc(feed)}</pre><div class="detail-tabs"><a href="#about">About</a><a href="#dependencies">Dependencies</a><a href="#versions">Versions</a></div><section id="about"><h2>About this package</h2><p class="detail-description">${esc(metadata.description)}</p><div class="tag-list">${(metadata.tags || []).filter(Boolean).map(t => `<a class="tag" href="/packages?q=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}</div></section><hr><section id="dependencies"><h2>Dependencies</h2>${dependencies.length ? dependencies.map(g => `<h3>${esc(g.targetFramework || 'All frameworks')}</h3>${g.dependencies.length ? `<ul>${g.dependencies.map(d => `<li><a href="/packages/${encodeURIComponent(d.id)}">${esc(d.id)}</a> <code>${esc(d.range)}</code></li>`).join('')}</ul>` : '<p>No dependencies for this framework.</p>'}`).join('') : '<p>This version has no package dependencies.</p>'}</section><hr><section id="versions"><h2>Version history</h2><div class="table-wrap"><table class="version-table"><thead><tr><th>Version</th><th>Published</th><th>Downloads</th><th>Status</th></tr></thead><tbody>${result.versions.map(v => `<tr><td><a href="/packages/${encodeURIComponent(id)}/${encodeURIComponent(v.normalizedVersion)}">${esc(v.version)}</a></td><td>${date(v.published)}</td><td>${num(v.downloads)}</td><td><span class="badge ${v.listed ? 'green' : 'red'}">${v.listed ? v.prerelease ? 'Prerelease' : 'Listed' : 'Unlisted'}</span></td></tr>`).join('')}</tbody></table></div></section></section><aside><div class="sidebar-card"><h3>Package information</h3><dl class="detail-facts"><dt>Total downloads</dt><dd>${num(result.totalDownloads)}</dd><dt>Published</dt><dd>${date(selected.published)}</dd><dt>Publisher</dt><dd>${esc(result.owner)}</dd><dt>Authors</dt><dd>${esc(metadata.authors)}</dd><dt>License</dt><dd>${esc(metadata.licenseExpression || 'Not specified')}</dd><dt>Package size</dt><dd>${num(Math.ceil(selected.size/1024))} KB</dd></dl><a class="button primary" href="${esc(selected.downloadUrl)}" download>Download package ↓</a>${metadata.projectUrl ? `<a class="sidebar-link" href="${esc(metadata.projectUrl)}" target="_blank" rel="noopener">Project website ↗</a>` : ''}</div><div class="sidebar-card blue"><h3>Make it part of your project.</h3><p>Connect your NuGet client to install this package and restore its dependencies.</p><a href="/docs" class="sidebar-link">View setup instructions →</a></div></aside></div></div>`;
+    if (feedBase && currentKey) {const link=$("a[download]");link.dataset.action="download-private";link.dataset.url=selected.downloadUrl;link.dataset.filename=`${result.id}.${selected.normalizedVersion}.nupkg`;}
     if (result.upstream) {
       $('.detail-header p').insertAdjacentHTML('beforeend',` · <span class="badge">Upstream: ${esc(result.upstream.name)}</span> <span class="badge ${selected.cached?'green':''}">${selected.cached?'Cached locally':'Fetch on download'}</span>`);
       const facts=$('.detail-facts');facts.insertAdjacentHTML('beforeend',`<dt>Upstream source</dt><dd>${esc(result.upstream.name)}${result.upstream.private?' · Private':''}</dd><dt>Cache</dt><dd>${selected.cached?'Archive cached in your storage':'Metadata available; archive fetched on first download'}</dd>`);
@@ -97,18 +100,19 @@ async function managementPage(generation) {
   document.title = 'Workspace management · NuShelf';
   if (!identity) { managementLogin(); return; }
   let tab = new URLSearchParams(location.search).get('tab') || 'overview';
-  if (!['overview','keys','packages','profiles','settings','upstreams','cache'].includes(tab)) tab = 'overview';
+
   if (identity.admin) {
     try { profiles = await api('/api/profiles',{},true); } catch(e) { if (generation === routeGeneration) { currentKey='';identity=null;managementLogin();toast(e.message); } return; }
     if (generation !== routeGeneration) return;
     if (!profiles.some(p => p.id === selectedProfile)) selectedProfile = profiles[0]?.id || '';
   } else { selectedProfile = identity.profileId; profiles = [{id:selectedProfile,name:identity.name}]; }
   const profile = profiles.find(p => p.id === selectedProfile);
-  const navItems = [['overview','Overview'],...(canManageKeys() ? [['keys','API keys & credentials']] : []),['packages','My packages'],...(identity.admin ? [['profiles','Publisher profiles'],['upstreams','Upstream sources'],['cache','Package cache'],['settings','Registry settings']] : [])];
+  const navItems = [['overview','Overview'],...(canManageKeys() ? [['keys','API keys & credentials']] : []),['packages','My packages'],['feeds','Feeds & teams'],...(identity.admin ? [['profiles','Publisher profiles'],['upstreams','Upstream sources'],['cache','Package cache'],['settings','Registry settings']] : [])];
   if (!navItems.some(([id]) => id === tab)) tab = 'overview';
   main.innerHTML = `${heading('Workspace management.', 'A place for your profiles, packages, and API keys.', '<button type="button" class="button" data-action="logout">Sign out ↗</button>')}<div class="shell page-content management-layout"><aside class="management-sidebar"><h3>Workspace</h3>${identity.admin ? `<label class="visually-hidden" for="profile-select">Publisher profile</label><select id="profile-select"><option value="" ${!selectedProfile ? 'selected' : ''}>Select a publisher profile</option>${profiles.map(p => `<option value="${esc(p.id)}" ${p.id === selectedProfile ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>` : ''}<nav class="management-nav" aria-label="Workspace navigation">${navItems.map(([id,label]) => `<a href="/manage?tab=${id}" class="${tab === id ? 'active' : ''}">${label}</a>`).join('')}</nav><div class="profile-card"><div class="profile-avatar">${esc((profile?.name || 'Admin').slice(0,1).toUpperCase())}</div><strong>${esc(profile?.name || 'Workspace admin')}</strong><br><span>${identity.admin ? 'Administrator access' : 'Publisher profile'}</span></div></aside><section id="management-content">${loading()}</section></div>`;
   const content = $('#management-content');
   try {
+    if (tab === 'feeds') { renderFeeds(content,await api('/api/feeds',{},true)); return; }
     if (tab === 'profiles') { renderProfiles(content); return; }
     if (tab === 'settings') { renderSettings(content); return; }
     if (tab === 'upstreams' || tab === 'cache') {
@@ -145,6 +149,9 @@ function renderOwnedPackages(content, packages) {
 function renderSettings(content) {
   content.innerHTML = `<div class="section-heading"><h2>Registry settings</h2></div><div class="panel"><h2>Deployment configuration</h2><p>These settings are configured on the server. Storage credentials are supplied through deployment secrets.</p>${[['Public URL',identity.publicUrl],['Package feed',feed],['Storage provider',identity.storageProvider],['Database','PostgreSQL'],['MCP endpoint',`${location.origin}/mcp`],['Read access','Public'],['Write access','Profile API key'],['API key storage','SHA-256 digest only']].map(([label,value]) => `<div class="settings-row"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('')}</div><div class="panel"><h2>Storage credentials</h2><p>Set storage service credentials in your Docker deployment environment. Full storage secrets are never sent to the browser. See the project README for S3, Azure Blob, and Google Cloud Storage configuration.</p><p>Changing providers requires migrating existing blobs; the metadata database does not automatically move package files.</p></div>`;
 }
+function renderFeeds(content,feeds) {
+  content.innerHTML=`<div class="section-heading"><h2>Feeds & teams</h2></div><p class="section-subtitle">Separate package namespaces, storage, and access for each team.</p>${identity.admin?'<div class="panel"><h2>Create a feed</h2><form data-form="create-feed"><div class="field"><label>Feed name<input name="name" pattern="[a-z][a-z0-9-]{0,39}" maxlength="40" required placeholder="platform"></label></div><label><input type="checkbox" name="private" checked> Private — members only</label><p><button class="button primary" type="submit">Create feed</button></p><div class="form-error" role="alert"></div></form></div>':''}${feeds.map(f=>`<div class="panel"><div class="section-heading"><h2>${esc(f.name)} <span class="badge">${f.private?'Private':'Public'}</span></h2><a href="/feeds/${esc(f.name)}/packages" target="_blank" rel="noopener">Open gallery ↗</a></div><pre>${esc(location.origin)}/feeds/${esc(f.name)}/v3/index.json</pre><p>${esc(f.role||'Public reader')} · ${f.enabled?'Enabled':'Disabled'}</p>${f.role==='administrator'?`<button class="button small" data-action="feed-enabled" data-id="${esc(f.id)}" data-enabled="${f.enabled}">${f.enabled?'Disable':'Enable'} feed</button><h3>Team membership</h3>${(f.members||[]).map(m=>`<p>${esc(m.name)} · ${esc(m.role)} <button class="button small danger" data-action="feed-remove-member" data-id="${esc(f.id)}" data-profile="${esc(m.profileId)}">Remove</button></p>`).join('')}<form data-form="feed-member" data-id="${esc(f.id)}"><div class="form-grid"><div class="field"><label for="member-profile-${esc(f.id)}">Profile</label><select id="member-profile-${esc(f.id)}" name="profile" required>${profiles.map(p=>`<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select></div><div class="field"><label for="member-role-${esc(f.id)}">Role</label><select id="member-role-${esc(f.id)}" name="role"><option value="reader">Reader</option><option value="publisher">Publisher</option><option value="administrator">Administrator</option></select></div></div><button class="button" type="submit">Save membership</button><div class="form-error" role="alert"></div></form>`:''}</div>`).join('')||empty('No feeds available.','Ask your administrator to create a feed or grant your profile access.')}`;
+}
 function sourceInput(form) {
   const data=new FormData(form);
   const split=name => String(data.get(name)||'').split(/[\n,]/).map(s=>s.trim()).filter(Boolean);
@@ -158,7 +165,7 @@ function renderCache(content,cached) {
 }
 async function route() {
   const generation = ++routeGeneration;
-  const path = location.pathname;
+  const path = location.pathname.slice(feedBase.length) || "/";
   document.querySelectorAll('[data-nav]').forEach(a => a.classList.toggle('active',path.startsWith(`/${a.dataset.nav}`)));
   try {
     if (path === '/') await home(generation);
@@ -171,12 +178,14 @@ async function route() {
     if (generation === routeGeneration && location.hash) document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView();
   } catch(e) { if (generation === routeGeneration) main.innerHTML = `<div class="shell page-content">${errorBox(e.message)}</div>`; }
 }
-function navigate(url) { history.pushState({},'',url); window.scrollTo(0,0); route(); }
+function navigate(url) { if (url.startsWith('/feeds/') && !url.startsWith(feedBase+'/')) { location.href=url;return; } if (feedBase && url.startsWith('/') && !url.startsWith(feedBase+'/')) url=feedBase+url; history.pushState({},'',url); window.scrollTo(0,0); route(); }
 document.addEventListener('click',async event => {
   const action = event.target.closest('[data-action]');
   if (action) {
     const name = action.dataset.action; action.disabled = true;
     try {
+      if (name === 'feed-remove-member') {await api('/api/feeds/'+action.dataset.id+'/members/'+action.dataset.profile,{method:'DELETE'},true);route();}
+      if (name === 'feed-enabled') {await api('/api/feeds/'+action.dataset.id,{method:'PATCH',body:{enabled:action.dataset.enabled!=='true'}},true);route();}
       if (name === 'copy-feed') { await navigator.clipboard.writeText(feed); toast('Package source copied.'); }
       if (name === 'copy-secret') { await navigator.clipboard.writeText(generatedKey); toast('API key copied.'); }
       if (name === 'close-secret') { generatedKey='';$('#new-secret').textContent='';$('#key-dialog').close(); }
@@ -239,6 +248,8 @@ document.addEventListener('submit',async event => {
       try { identity=await api('/api/me',{},true); } catch(e) { currentKey='';throw e; }
       form.reset();await route();
     }
+    if (type === 'create-feed') {await api('/api/feeds',{method:'POST',body:{name:data.get('name'),private:data.has('private')}},true);toast('Feed created.');route();}
+    if (type === 'feed-member') {await api('/api/feeds/'+form.dataset.id+'/members/'+data.get('profile'),{method:'PUT',body:{role:data.get('role')}},true);toast('Feed membership saved.');route();}
     if (type === 'create-profile') { const profile=await api('/api/profiles',{method:'POST',body:{name:data.get('name')}},true);selectedProfile=profile.id;toast('Publisher profile created.');navigate('/manage?tab=keys'); }
     if (type === 'rename-profile') { const profile=await api(`/api/profiles/${selectedProfile}`,{method:'PATCH',body:{name:data.get('name')}},true);if (!identity.admin) identity.name=profile.name;toast('Profile saved.');route(); }
     if (type === 'create-key') {

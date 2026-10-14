@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod config;
 pub mod error;
+pub mod feeds;
 pub mod mcp;
 pub mod package;
 pub mod registry;
@@ -29,6 +30,9 @@ pub struct AppState {
     pub storage: Arc<dyn ObjectStore>,
     pub config: Arc<Config>,
     pub upload_slots: Arc<tokio::sync::Semaphore>,
+    pub feeds: Arc<feeds::FeedPools>,
+    pub feed: Option<uuid::Uuid>,
+    pub read_prefix: String,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -43,6 +47,10 @@ pub fn router(state: AppState) -> Router {
             limit_uploads,
         ));
     Router::new()
+        .route("/feeds/{name}/{*path}",axum::routing::any(feeds::endpoint))
+        .route("/api/feeds",get(feeds::list).post(feeds::create))
+        .route("/api/feeds/{id}",axum::routing::patch(feeds::update))
+        .route("/api/feeds/{id}/members/{profile}",put(feeds::member).delete(feeds::remove_member))
         .route("/",get(home))
         .route("/packages",get(home))
         .route("/packages/{id}",get(home))

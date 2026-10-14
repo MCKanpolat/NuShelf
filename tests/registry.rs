@@ -98,6 +98,9 @@ async fn postgres_registry_local_and_s3() {
             storage: storage.clone(),
             config: Arc::new(config),
             upload_slots: Arc::new(tokio::sync::Semaphore::new(4)),
+            feeds: Arc::default(),
+            feed: None,
+            read_prefix: String::new(),
         };
         let server = tokio::spawn(async move {
             axum::serve(listener, nushelf::router(state)).await.unwrap();

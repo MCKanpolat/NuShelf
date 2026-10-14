@@ -47,6 +47,9 @@ async fn main() -> Result<()> {
         storage: nushelf::storage::build(&config)?,
         config: Arc::new(config),
         upload_slots: Arc::new(tokio::sync::Semaphore::new(4)),
+        feeds: Arc::default(),
+        feed: None,
+        read_prefix: String::new(),
     };
     let mut results = Vec::new();
     for (label, q, sort) in [

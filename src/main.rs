@@ -37,7 +37,13 @@ async fn main() -> Result<()> {
         storage,
         config: Arc::new(config),
         upload_slots: Arc::new(tokio::sync::Semaphore::new(4)),
+        feeds: Arc::default(),
+        feed: None,
+        read_prefix: String::new(),
     };
+    nushelf::feeds::initialize(&state)
+        .await
+        .map_err(|e| anyhow::anyhow!(e.1))?;
     let listener = tokio::net::TcpListener::bind(address).await?;
     tracing::info!(%address,"NuShelf is ready");
     axum::serve(listener, router(state))

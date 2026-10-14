@@ -16,10 +16,13 @@ fn rpc_error(id: Value, code: i32, message: &str) -> Response {
     Json(json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message}})).into_response()
 }
 async fn authorize(state: &AppState, headers: &HeaderMap) -> ApiResult<()> {
-    if headers
-        .get("origin")
-        .is_some_and(|origin| origin.to_str().ok() != Some(state.config.public_url.as_str()))
-    {
+    if headers.get("origin").is_some_and(|origin| {
+        origin.to_str().ok()
+            != url::Url::parse(&state.config.public_url)
+                .ok()
+                .map(|u| u.origin().ascii_serialization())
+                .as_deref()
+    }) {
         return Err(ApiError::forbidden("Origin is not allowed"));
     }
     auth::authenticate(state, headers)

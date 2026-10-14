@@ -33,6 +33,7 @@ Inspired by [BaGet](https://github.com/loic-sharma/BaGet)'s straightforward depl
 | --- | --- |
 | **NuGet V3 registry** | Publish `.nupkg` files, download packages and nuspec manifests, discover versions, fetch registration metadata, search, and autocomplete using standard NuGet endpoints. |
 | **Package gallery** | Browse recent or popular packages; search IDs, tags, authors, and descriptions; filter prereleases; inspect dependencies and version history; upload a package in your browser. |
+| **Private team feeds** | Isolate package namespaces, search, upstreams and storage by feed. Grant profiles reader, publisher or administrator membership; private reads require scoped credentials. |
 | **Workspace management** | Create publisher profiles, edit profile names, manage credentials, and list or unlist owned package versions from a dedicated UI. |
 | **Profile API keys** | Give each application its own key with explicit permissions, an optional package prefix, and an expiration date. Revoke keys independently. Full keys are shown once and stored as SHA-256 digests. |
 | **Package ownership** | The first publishing profile owns a package ID. Other profiles cannot publish versions under that ID. Published versions are immutable; unlisting preserves existing restores. |
@@ -309,7 +310,7 @@ Tests exercise NuGet version ordering, malformed ZIP/XML handling, ownership, ke
 
 **Implemented:** NuGet V3 resources, V2-shaped push/delete endpoints, local package ownership, scoped keys, gallery and management UI, PostgreSQL search, pluggable storage, multiple upstreams with read-through cache and private grants, and read-only MCP.
 
-**Not implemented yet:** legacy OData V2 feeds, symbol serving / `.snupkg`, proactive/full upstream mirroring, federated upstream keyword search, NuGet catalog and vulnerability feeds, package signature validation, automatic cache eviction, embedded README/icon rendering, password/OIDC login, email flows, public self-registration, and private reads for locally published packages.
+**Not implemented yet:** legacy OData V2 feeds, symbol serving / `.snupkg`, proactive/full upstream mirroring, federated upstream keyword search, NuGet catalog and vulnerability feeds, package signature validation, automatic cache eviction, embedded README/icon rendering, password/OIDC login, email flows, public self-registration, and private reads in the root registry (named feeds support private local packages).
 
 An interrupted upload can leave an unreferenced blob after storage succeeds but before the database commits; automatic orphan cleanup is not implemented. Readiness checks PostgreSQL rather than remote storage write permissions. The deployment guide covers these operational boundaries.
 
@@ -318,6 +319,7 @@ An interrupted upload can leave an unreferenced blob after storage succeeds but 
 | Guide | Contents |
 | --- | --- |
 | [Deployment and usage](docs/deployment.md) | Configuration, first profile, NuGet clients, storage credentials, MCP transport, and operations. |
+| [Named feeds](docs/feeds.md) | Private feeds, team roles, NuGet credentials, isolation and operations. |
 | [Architecture](docs/architecture.md) | Modules, ownership, publication transactions, search, credentials, and deployment design. |
 | [Upstream sources and cache](docs/upstreams.md) | Multiple registries, package rules, private access, credentials, cache behavior, and verification. |
 | [Performance](docs/performance.md) | Synthetic dataset, measured latency, PostgreSQL index plan, and benchmark command. |

@@ -34,6 +34,10 @@ services:
     volumes: ["cargo-registry:/usr/local/cargo/registry", "cargo-target:/app/target"]
   app:
     build: .
+    healthcheck:
+      interval: 1s
+      timeout: 3s
+      retries: 60
     profiles: ["e2e", "ui"]
     environment:
       DATABASE_URL: postgres://test:test-only-password@postgres:5432/nushelf_test

@@ -228,6 +228,9 @@ async fn multi_source_read_through_cache_and_private_access() {
             storage,
             config: Arc::new(config),
             upload_slots: Arc::new(tokio::sync::Semaphore::new(4)),
+            feeds: Arc::default(),
+            feed: None,
+            read_prefix: String::new(),
         };
         let app = tokio::spawn(async move {
             axum::serve(listener, nushelf::router(state)).await.unwrap();

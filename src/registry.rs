@@ -302,6 +302,7 @@ pub async fn versions(
 }
 pub async fn find_version(state: &AppState, id: &str, version: &str) -> ApiResult<PackageRow> {
     let id = package_id(id)?;
+    crate::feeds::check_package(state, &id)?;
     let version = NuGetVersion::parse(version)?.normalized;
     sqlx::query_as::<_, PackageRow>(&format!(
         "{ROW_SELECT} WHERE v.package_id=$1 AND v.version=$2"
@@ -314,6 +315,7 @@ pub async fn find_version(state: &AppState, id: &str, version: &str) -> ApiResul
 }
 pub async fn all_versions(state: &AppState, id: &str) -> ApiResult<Vec<PackageRow>> {
     let id = package_id(id)?;
+    crate::feeds::check_package(state, &id)?;
     let rows = sqlx::query_as::<_, PackageRow>(&format!(
         "{ROW_SELECT} WHERE v.package_id=$1 ORDER BY v.version_sort COLLATE \"C\""
     ))
@@ -462,11 +464,16 @@ pub async fn search_value(state: &AppState, query: &SearchQuery) -> ApiResult<Va
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         .execute(&mut *tx)
         .await?;
-    let mut filter = if q.is_empty() {
-        BROWSE_FILTER
-    } else {
-        SEARCH_FILTER
-    };
+    let prefix_filter = format!(" AND starts_with(d.package_id,'{}')", state.read_prefix);
+    let mut filter = format!(
+        "{}{}",
+        if q.is_empty() {
+            BROWSE_FILTER
+        } else {
+            SEARCH_FILTER
+        },
+        prefix_filter
+    );
     let mut total: i64 = sqlx::query_scalar(&format!(
         "SELECT count(*) FROM search_documents d WHERE {filter}"
     ))
@@ -478,7 +485,7 @@ pub async fn search_value(state: &AppState, query: &SearchQuery) -> ApiResult<Va
     // Fuzzy matching is a fallback, so shared ID prefixes do not drown exact results
     // in thousands of similar package names or force trigram work on every search.
     if total == 0 && q.len() >= 3 {
-        filter = FUZZY_FILTER;
+        filter = format!("{FUZZY_FILTER}{prefix_filter}");
         total = sqlx::query_scalar(&format!(
             "SELECT count(*) FROM search_documents d WHERE {filter}"
         ))
@@ -568,6 +575,11 @@ pub async fn details(
     Ok(Json(details_value(&state, &id).await?))
 }
 pub async fn stats(State(state): State<AppState>) -> ApiResult<Json<Value>> {
+    if !state.read_prefix.is_empty() {
+        return Err(ApiError::forbidden(
+            "Statistics require a key without a package prefix",
+        ));
+    }
     let result: Value = sqlx::query_scalar("SELECT jsonb_build_object('packages',(SELECT count(DISTINCT package_id) FROM search_documents),'versions',(SELECT count(*) FROM package_versions WHERE listed),'downloads',(SELECT COALESCE(sum(downloads),0) FROM packages),'profiles',(SELECT count(*) FROM profiles))").fetch_one(&state.db).await?;
     Ok(Json(result))
 }

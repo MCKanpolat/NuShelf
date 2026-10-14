@@ -1,0 +1,337 @@
+use axum::http::StatusCode;
+use bytes::Bytes;
+use nushelf::{AppState, config::Config};
+use reqwest::{Client, Response};
+use serde_json::{Value, json};
+use sqlx::PgPool;
+use std::{
+    io::{Cursor, Write},
+    sync::Arc,
+};
+use uuid::Uuid;
+const ADMIN: &str = "feature-tests-admin-key-at-least-32-characters";
+fn package(id: &str) -> Bytes {
+    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    zip.start_file("package.nuspec", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    write!(zip,"<package><metadata><id>{id}</id><version>1.0.0</version><authors>Team</authors><description>Feature test</description></metadata></package>").unwrap();
+    Bytes::from(zip.finish().unwrap().into_inner())
+}
+async fn json_response(r: Response) -> Value {
+    let status = r.status();
+    let body = r.text().await.unwrap();
+    assert!(status.is_success(), "{status}: {body}");
+    serde_json::from_str(&body).unwrap()
+}
+async fn profile(c: &Client, b: &str, name: &str) -> String {
+    json_response(
+        c.post(format!("{b}/api/profiles"))
+            .bearer_auth(ADMIN)
+            .json(&json!({"name":name}))
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .into()
+}
+async fn key(c: &Client, b: &str, p: &str, scopes: &[&str], prefix: &str) -> String {
+    json_response(
+        c.post(format!("{b}/api/profiles/{p}/keys"))
+            .bearer_auth(ADMIN)
+            .json(&json!({"label":"Feature test","scopes":scopes,"packagePrefix":prefix}))
+            .send()
+            .await
+            .unwrap(),
+    )
+    .await["key"]
+        .as_str()
+        .unwrap()
+        .into()
+}
+#[tokio::test]
+#[ignore = "requires Docker PostgreSQL and MinIO"]
+async fn named_feeds_isolate_packages_storage_search_and_permissions() {
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("nushelf=debug")
+        .try_init();
+    let database_url = std::env::var("TEST_DATABASE_URL").unwrap();
+    let root = PgPool::connect(&database_url).await.unwrap();
+    for provider in ["local", "s3"] {
+        let database = format!("features_{}", Uuid::new_v4().simple());
+        sqlx::query(&format!("CREATE DATABASE {database}"))
+            .execute(&root)
+            .await
+            .unwrap();
+        let mut url = url::Url::parse(&database_url).unwrap();
+        url.set_path(&format!("/{database}"));
+        let db = PgPool::connect(url.as_str()).await.unwrap();
+        sqlx::migrate!("./migrations").run(&db).await.unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await.unwrap();
+        let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let config = Config {
+            database_url: url.to_string(),
+            public_url: base.clone(),
+            bind: listener.local_addr().unwrap(),
+            admin_key: ADMIN.into(),
+            max_package_bytes: 2 * 1024 * 1024,
+            database_connections: 8,
+            storage_provider: provider.into(),
+            storage_path: dir.path().to_str().unwrap().into(),
+        };
+        let storage: Arc<dyn object_store::ObjectStore> = if provider == "local" {
+            nushelf::storage::build(&config).unwrap()
+        } else {
+            Arc::new(
+                object_store::aws::AmazonS3Builder::new()
+                    .with_bucket_name("nushelf-test")
+                    .with_region("us-east-1")
+                    .with_access_key_id("test-user")
+                    .with_secret_access_key("test-only-password")
+                    .with_endpoint(std::env::var("TEST_S3_ENDPOINT").unwrap())
+                    .with_allow_http(true)
+                    .build()
+                    .unwrap(),
+            )
+        };
+        let state = AppState {
+            db: db.clone(),
+            storage,
+            config: Arc::new(config),
+            upload_slots: Arc::new(tokio::sync::Semaphore::new(4)),
+            feeds: Arc::default(),
+            feed: None,
+            read_prefix: String::new(),
+        };
+        let server =
+            tokio::spawn(
+                async move { axum::serve(listener, nushelf::router(state)).await.unwrap() },
+            );
+        let c = Client::new();
+        let p = profile(&c, &base, "Publisher").await;
+        let other = profile(&c, &base, "Other team").await;
+        let publisher = key(
+            &c,
+            &base,
+            &p,
+            &[
+                "package:push",
+                "package:read",
+                "package:unlist",
+                "mcp:read",
+                "feeds:manage",
+            ],
+            "",
+        )
+        .await;
+        let reader = key(
+            &c,
+            &base,
+            &p,
+            &["package:read", "package:push", "mcp:read"],
+            "team.",
+        )
+        .await;
+        let outsider = key(&c, &base, &other, &["package:read", "package:push"], "").await;
+        let mut ids = Vec::new();
+        for name in ["alpha", "beta"] {
+            let f = json_response(
+                c.post(format!("{base}/api/feeds"))
+                    .bearer_auth(ADMIN)
+                    .json(&json!({"name":name}))
+                    .send()
+                    .await
+                    .unwrap(),
+            )
+            .await;
+            let id = f["id"].as_str().unwrap();
+            ids.push(id.to_owned());
+            assert_eq!(
+                c.put(format!("{base}/api/feeds/{id}/members/{p}"))
+                    .bearer_auth(ADMIN)
+                    .json(&json!({"role":"publisher"}))
+                    .send()
+                    .await
+                    .unwrap()
+                    .status(),
+                StatusCode::NO_CONTENT
+            );
+            assert_eq!(
+                c.put(format!("{base}/feeds/{name}/api/v2/package"))
+                    .bearer_auth(&publisher)
+                    .body(package("Team.Core"))
+                    .send()
+                    .await
+                    .unwrap()
+                    .status(),
+                StatusCode::CREATED
+            );
+        }
+        assert_eq!(
+            c.get(format!("{base}/v3/flatcontainer/team.core/index.json"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::NOT_FOUND
+        );
+        let feed = format!("{base}/feeds/alpha");
+        for path in [
+            "v3/index.json",
+            "v3/search",
+            "v3/autocomplete",
+            "api/stats",
+            "api/packages/team.core",
+            "v3/registration/team.core/index.json",
+            "v3/flatcontainer/team.core/1.0.0/team.core.1.0.0.nupkg",
+        ] {
+            assert_eq!(
+                c.get(format!("{feed}/{path}"))
+                    .send()
+                    .await
+                    .unwrap()
+                    .status(),
+                StatusCode::UNAUTHORIZED,
+                "{path}"
+            );
+            assert_eq!(
+                c.get(format!("{feed}/{path}"))
+                    .bearer_auth(&outsider)
+                    .send()
+                    .await
+                    .unwrap()
+                    .status(),
+                StatusCode::FORBIDDEN,
+                "{path}"
+            );
+        }
+        let index = json_response(
+            c.get(format!("{feed}/v3/index.json"))
+                .basic_auth("profile", Some(&publisher))
+                .send()
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert!(
+            index["resources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|r| r["@id"].as_str().unwrap().starts_with(&feed))
+        );
+        assert_eq!(
+            c.put(format!("{feed}/api/v2/package"))
+                .bearer_auth(&publisher)
+                .body(package("Other.Core"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::CREATED
+        );
+        let search = json_response(
+            c.get(format!("{feed}/v3/search"))
+                .bearer_auth(&reader)
+                .send()
+                .await
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(search["totalHits"], 1);
+        assert_eq!(search["data"][0]["id"], "Team.Core");
+        assert_eq!(
+            c.get(format!("{feed}/v3/autocomplete?id=Other.Core"))
+                .bearer_auth(&reader)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        let rpc=json_response(c.post(format!("{feed}/mcp")).bearer_auth(&reader).header("accept","application/json, text/event-stream").header("mcp-protocol-version","2025-06-18").json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_package","arguments":{"id":"Other.Core"}}})).send().await.unwrap()).await;
+        assert!(rpc.get("error").is_some() || rpc["result"]["isError"] == true);
+        let file = c
+            .get(format!(
+                "{feed}/v3/flatcontainer/team.core/1.0.0/team.core.1.0.0.nupkg"
+            ))
+            .bearer_auth(&publisher)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(file.status(), StatusCode::OK);
+        assert_eq!(file.bytes().await.unwrap(), package("Team.Core"));
+        c.put(format!("{base}/api/feeds/{}/members/{p}", ids[0]))
+            .bearer_auth(ADMIN)
+            .json(&json!({"role":"reader"}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            c.put(format!("{feed}/api/v2/package"))
+                .bearer_auth(&publisher)
+                .body(package("Team.New"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        c.delete(format!("{base}/api/feeds/{}/members/{p}", ids[0]))
+            .bearer_auth(ADMIN)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            c.get(format!("{feed}/v3/search"))
+                .bearer_auth(&publisher)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            c.get(format!("{base}/feeds/beta/v3/search"))
+                .bearer_auth(&publisher)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            c.get(format!("{base}/api/feeds"))
+                .send()
+                .await
+                .unwrap()
+                .json::<Value>()
+                .await
+                .unwrap(),
+            json!([])
+        );
+        c.patch(format!("{base}/api/feeds/{}", ids[1]))
+            .bearer_auth(ADMIN)
+            .json(&json!({"private":false}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            c.get(format!("{base}/feeds/beta/v3/search"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::OK
+        );
+        server.abort();
+        db.close().await;
+        sqlx::query(&format!("DROP DATABASE {database} WITH (FORCE)"))
+            .execute(&root)
+            .await
+            .unwrap();
+    }
+}
