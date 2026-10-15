@@ -166,6 +166,7 @@ async fn postgres_registry_local_and_s3() {
                 database_connections: 8,
                 storage_provider: "s3".into(),
                 storage_path: dir.path().to_str().unwrap().into(),
+                metrics_bind: None,
             };
             let broken = AppState {
                 db: db.clone(),
