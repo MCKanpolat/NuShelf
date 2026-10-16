@@ -43,6 +43,8 @@ Hashtags are case-insensitive and must be complete tokens. The highest applicabl
 
 The workflow uses `GITHUB_TOKEN` with write permissions only on jobs that require them. The repository must permit these workflow token permissions. No personal access token or chained tag-push trigger is required. Images and charts are built within the same workflow, since tags created with `GITHUB_TOKEN` do not start another push workflow.
 
+Configure the repository Actions secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` (a Docker Hub read-only PAT) for base-image pulls in CI and releases. Docker Hub login is skipped for fork and Dependabot pull requests, which do not receive these secrets; those checks use public pulls. GHCR publication continues to use `GITHUB_TOKEN`.
+
 New GHCR packages can initially be private. Set the `nushelf` and `charts/nushelf` package visibility to public if unauthenticated installation is intended; otherwise configure registry pull credentials.
 
 ## Failure and retry
