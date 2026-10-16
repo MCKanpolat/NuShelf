@@ -81,12 +81,29 @@ pub async fn metadata(
     reader: &Reader,
     input: &str,
 ) -> ApiResult<(Metadata, Source)> {
+    metadata_policy(state, reader, input, None).await
+}
+pub async fn metadata_from_source(
+    state: &AppState,
+    reader: &Reader,
+    input: &str,
+    source: Uuid,
+) -> ApiResult<(Metadata, Source)> {
+    metadata_policy(state, reader, input, Some(source)).await
+}
+async fn metadata_policy(
+    state: &AppState,
+    reader: &Reader,
+    input: &str,
+    only_source: Option<Uuid>,
+) -> ApiResult<(Metadata, Source)> {
     let id = package_id(input)?;
     if local_exists(state, &id).await? {
         return Err(ApiError::not_found());
     }
     if let Ok((meta, source)) = pinned(state, reader, &id).await
         && meta.expires_at > Utc::now()
+        && only_source.is_none()
     {
         return Ok((meta, source));
     }
@@ -117,14 +134,25 @@ pub async fn metadata(
     ))
     .fetch_all(&mut *tx)
     .await?;
-    for source in choose(
-        sources::select_candidates(rows, &id),
-        old.as_ref().map(|m| m.source_id),
-    )? {
+    let mut candidates = sources::select_candidates(rows, &id);
+    if let Some(source) = only_source {
+        candidates.retain(|s| s.id == source);
+        if old.as_ref().is_some_and(|m| m.source_id != source) {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                "Package is pinned to a different upstream".into(),
+            ));
+        }
+    }
+    for mut source in choose(candidates, old.as_ref().map(|m| m.source_id))? {
+        if only_source.is_some() {
+            source.stale_on_error = false;
+        }
         reader.check(&source, &id)?;
         source_lock(&mut tx, source.id).await?;
         if let Some(meta) = &old
             && meta.expires_at > Utc::now()
+            && only_source.is_none()
         {
             return Ok((meta.clone(), source));
         }
@@ -158,6 +186,9 @@ pub async fn metadata(
         };
         let Some(result) = result else {
             if let Some(meta) = &old {
+                if only_source.is_some() {
+                    return Err(ApiError::not_found());
+                }
                 return Ok((meta.clone(), source));
             }
             sqlx::query("INSERT INTO upstream_misses(source_id,package_id,expires_at) VALUES($1,$2,now()+interval '60 seconds') ON CONFLICT(source_id,package_id) DO UPDATE SET expires_at=EXCLUDED.expires_at").bind(source.id).bind(&id).execute(&mut *tx).await?;
@@ -294,8 +325,25 @@ pub async fn catalog(
     reader: &Reader,
     input: &str,
 ) -> ApiResult<(Vec<Value>, Source)> {
-    let (meta, source) = metadata(state, reader, input).await?;
-    if let Some(entries) = &meta.catalog
+    catalog_policy(state, reader, input, None).await
+}
+pub async fn catalog_from_source(
+    state: &AppState,
+    reader: &Reader,
+    input: &str,
+    source: Uuid,
+) -> ApiResult<(Vec<Value>, Source)> {
+    catalog_policy(state, reader, input, Some(source)).await
+}
+async fn catalog_policy(
+    state: &AppState,
+    reader: &Reader,
+    input: &str,
+    only_source: Option<Uuid>,
+) -> ApiResult<(Vec<Value>, Source)> {
+    let (meta, source) = metadata_policy(state, reader, input, only_source).await?;
+    if only_source.is_none()
+        && let Some(entries) = &meta.catalog
         && meta
             .catalog_checked_at
             .is_some_and(|t| t + Duration::seconds(source.metadata_ttl_seconds as i64) > Utc::now())
@@ -319,7 +367,8 @@ pub async fn catalog(
         .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(ApiError::not_found)?;
-    if let Some(entries) = &current.catalog
+    if only_source.is_none()
+        && let Some(entries) = &current.catalog
         && current
             .catalog_checked_at
             .is_some_and(|t| t + Duration::seconds(source.metadata_ttl_seconds as i64) > Utc::now())

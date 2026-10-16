@@ -89,6 +89,7 @@ async fn main() -> Result<()> {
     nushelf::audit::worker(state.clone());
     nushelf::maintenance::worker(state.clone());
     nushelf::events::worker(state.clone());
+    nushelf::upstream::mirror::worker(state.clone());
     tracing::info!(%address,"NuShelf is ready");
     axum::serve(
         listener,

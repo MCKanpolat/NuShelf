@@ -252,6 +252,44 @@ pub async fn index(source: &Source) -> ApiResult<Value> {
         Err(e) => Err(e),
     }
 }
+
+pub fn has_resource(index: &Value, kind: &str) -> bool {
+    index["resources"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|r| {
+            r["@type"]
+                .as_str()
+                .is_some_and(|t| t == kind || t.starts_with(&format!("{kind}/")))
+        })
+}
+/// Resource endpoints (catalog/search) are documents, not URL directory bases.
+pub fn resource_endpoint_for(
+    state: &crate::AppState,
+    index: &Value,
+    kind: &str,
+) -> ApiResult<String> {
+    let resources = index["resources"]
+        .as_array()
+        .ok_or_else(|| failure("Invalid NuGet service index"))?;
+    let endpoint = resources
+        .iter()
+        .find(|r| {
+            r["@type"]
+                .as_str()
+                .is_some_and(|t| t == kind || t.starts_with(&format!("{kind}/")))
+        })
+        .and_then(|r| r["@id"].as_str())
+        .ok_or_else(|| failure("Upstream is missing a required NuGet resource"))?;
+    let url = url::Url::parse(endpoint).map_err(|_| failure("Invalid upstream endpoint"))?;
+    let own = url::Url::parse(&state.config.public_url).map_err(ApiError::internal)?;
+    if !matches!(url.scheme(), "https" | "http") || url.origin() == own.origin() {
+        return Err(failure("Unsafe or self-referencing upstream endpoint"));
+    }
+    Ok(endpoint.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

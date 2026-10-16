@@ -114,7 +114,7 @@ pub async fn execute(state: &AppState, dry_run: bool, orphans: bool) -> ApiResul
     let used: i64 = sqlx::query_scalar("SELECT COALESCE(sum(size),0)::bigint FROM upstream_cache")
         .fetch_one(&mut *tx)
         .await?;
-    let candidates:Vec<Candidate>=sqlx::query_as("SELECT package_id,version,storage_key,size,last_accessed_at FROM upstream_cache WHERE NOT protected AND cached_at<now()-interval '1 hour' ORDER BY last_accessed_at,package_id,version LIMIT 500").fetch_all(&mut *tx).await?;
+    let candidates:Vec<Candidate>=sqlx::query_as("SELECT package_id,version,storage_key,size,last_accessed_at FROM upstream_cache WHERE NOT protected AND NOT mirrored AND cached_at<now()-interval '1 hour' ORDER BY last_accessed_at,package_id,version LIMIT 500").fetch_all(&mut *tx).await?;
     let mut remaining = used;
     let mut selected = Vec::new();
     let mut ids = Vec::new();
@@ -138,7 +138,7 @@ pub async fn execute(state: &AppState, dry_run: bool, orphans: bool) -> ApiResul
                     .execute(&mut *tx)
                     .await?;
             }
-            let deleted:Option<String>=sqlx::query_scalar("DELETE FROM upstream_cache WHERE package_id=$1 AND version=$2 AND NOT protected AND last_accessed_at=$3 RETURNING storage_key").bind(&c.package_id).bind(&c.version).bind(c.last_accessed_at).fetch_optional(&mut *tx).await?;
+            let deleted:Option<String>=sqlx::query_scalar("DELETE FROM upstream_cache WHERE package_id=$1 AND version=$2 AND NOT protected AND NOT mirrored AND last_accessed_at=$3 RETURNING storage_key").bind(&c.package_id).bind(&c.version).bind(c.last_accessed_at).fetch_optional(&mut *tx).await?;
             if deleted.is_none() {
                 continue;
             }

@@ -83,13 +83,13 @@ Platforms without NuGet password encryption support may require `--store-passwor
 
 Downloads expose `X-NuShelf-Cache: MISS` on a cache fill and `HIT` on a cache hit, plus the upstream UUID in `X-NuShelf-Upstream`. HEAD and nuspec/hash reads do not increment download counts. A first HEAD/nuspec/hash request may populate the archive cache.
 
-Search results list local packages first, followed by visible cached packages, with sorting within each group. This release does not federate keyword search across every upstream. Metadata-only entries appear through exact-ID lookup; downloaded archives join PostgreSQL search. Listing changes discovered during registration refresh update cached search visibility.
+Search results list local packages first, followed by visible cached packages, with sorting within each group. The gallery can also run live keyword search across visible upstreams; see [live discovery and mirrors](#live-discovery-and-mirrors). Metadata-only entries appear through exact-ID lookup; downloaded archives join PostgreSQL search. Listing changes discovered during registration refresh update cached search visibility.
 
 ## Manage storage and cleanup
 
 **Package cache** shows the latest 500 cached versions, their origins, cache times, download counts, and sizes. Source totals cover all entries. **Clear cache** removes that source's archives, metadata, negative entries, and package pins. Future restores require the origin again. Local packages are unaffected.
 
-Clear a source before changing its URL or removing it. Disabling a source makes its cache unavailable until re-enabled. Storage cleanup failures are reported separately; interrupted uploads or failed deletions can leave unreferenced objects. Automatic quota eviction/orphan cleanup is not implemented.
+Clear a source before changing its URL or removing it. Disabling a source makes its cache unavailable until re-enabled. Storage cleanup failures are reported separately; interrupted uploads or failed deletions can leave unreferenced objects. [Automatic cache maintenance](cache-maintenance.md) supports quotas, idle eviction and orphan cleanup. Mirrored archives are retained.
 
 ## Network boundaries and limits
 
@@ -124,3 +124,29 @@ docker run --rm --network container:nushelf-app-1 \
 ```
 
 Use the actual application container name if your Compose project name differs. This optional live test depends on internet access and is not part of the deterministic CI fixture tests.
+
+## Live discovery and mirrors
+
+The Packages page offers **Search upstreams** to discover packages that have not been downloaded. Requests use the existing URL/DNS/redirect checks and source credentials. Private sources require `package:read` and a profile grant; named feed and key prefixes still apply. Search does not download archives or create source pins.
+
+`GET /api/upstreams/search?q=json&take=20&skip=0&prerelease=false&semVerLevel=2.0.0` queries up to four sources concurrently. Pass `sourceId` to page one source. Each `sources` entry contains `data`, `upstreamTotalHits`, `nextSkip`, and `error`. Follow each source's `nextSkip`, including when routing filters leave an empty visible page. Counts are those reported by the origin before NuShelf routing, ownership, version and grant filters. They are intentionally separate from the local V3 count. Duplicate IDs in one batch prefer source priority and existing pins. `partial=true` means at least one visible source failed. A private source that the reader cannot access is not included in the response.
+
+V3 discovery continues to search local and cached/mirrored packages in PostgreSQL, so restore clients can search them during upstream outages. Live discovery has separate per-source pages because upstream search counts and ordering cannot provide a single exact deduplicated V3 total without fetching every result from every source.
+
+In **Manage → Upstream sources → Upstream mirrors**, configure a schedule, request a run, pause, inspect status, or view the latest jobs. Mirroring is off by default. Copying a large source can consume substantial storage; include/exclude routing determines the eligible package namespaces.
+
+Administrator endpoints:
+
+| Endpoint | Behavior |
+| --- | --- |
+| `GET /api/upstreams/{id}/mirror` | Status, durable cursor, counts, last failure and next run. |
+| `PATCH /api/upstreams/{id}/mirror` | `{ "enabled": true, "intervalSeconds": 3600 }`; interval 60–86400 seconds. |
+| `POST /api/upstreams/{id}/mirror/run` | Queue a durable run; returns 202. The source must be enabled. |
+| `POST /api/upstreams/{id}/mirror/cancel` | Disable scheduling and pause after the current work unit. |
+| `GET /api/upstreams/{id}/mirror/jobs?skip=0` | Up to 100 job records, including retry errors. |
+
+The worker checkpoints each discovery page and archive job in PostgreSQL. Transaction-scoped advisory locks coordinate replicas and release on connection loss or cancellation. Network work is bounded; archive jobs retry six times with exponential backoff. A failed run remains visibly failed; requesting another run retries unfinished jobs. No process-local task state is needed to resume after a restart.
+
+A source advertising `Catalog` is consumed chronologically using its commit timestamps. The initial scan visits history, downloads eligible versions, refreshes listing/deprecation changes, and applies package deletions. Later runs continue from the persisted catalog timestamp. Deleted archives enter the existing delayed storage cleanup queue. With no Catalog resource, the worker enumerates every search page and then every version exposed by each package's flat container/registration. This can include unlisted versions of discovered IDs; an ID hidden entirely from upstream search cannot be discovered without an upstream catalog. Search enumeration is repeated each run because search has no durable change cursor.
+
+Mirrors use strict origin reads: a stale cache fallback cannot count as a successful sync. Source pins and local ownership are preserved; jobs belonging to another namespace/source are reported as skipped. Mirrored archives have independent retention and are excluded from automatic quota/idle eviction even if manual protection is cleared. Pausing retains existing copies. Pause before clearing a source cache; clearing also resets mirror progress for a fresh scan.

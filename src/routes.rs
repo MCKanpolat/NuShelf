@@ -22,6 +22,7 @@ pub fn web() -> Router<AppState> {
         .route("/docs", get(crate::home))
         .route("/assets/app.css", get(crate::css))
         .route("/assets/app.js", get(crate::js))
+        .route("/assets/upstream-discovery.js", get(crate::upstream_js))
         .route("/health/live", get(crate::live))
         .route("/health/ready", get(crate::ready))
 }
@@ -120,6 +121,23 @@ pub fn operations() -> Router<AppState> {
         .route(
             "/api/upstreams",
             get(upstream::sources::list).post(upstream::sources::create),
+        )
+        .route("/api/upstreams/search", get(upstream::federation::search))
+        .route(
+            "/api/upstreams/{id}/mirror",
+            get(upstream::mirror::status).patch(upstream::mirror::settings),
+        )
+        .route(
+            "/api/upstreams/{id}/mirror/run",
+            post(upstream::mirror::request),
+        )
+        .route(
+            "/api/upstreams/{id}/mirror/cancel",
+            post(upstream::mirror::cancel),
+        )
+        .route(
+            "/api/upstreams/{id}/mirror/jobs",
+            get(upstream::mirror::jobs),
         )
         .route("/api/upstreams/test", post(upstream::sources::test_input))
         .route("/api/upstreams/cache", get(upstream::sources::cache_list))

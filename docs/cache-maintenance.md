@@ -12,3 +12,5 @@
 Cleanup is bounded to 500 cache evictions and 500 queued deletions per run. Protected or recent archives can keep usage above quota; the preview reports this. Orphan scans process storage in batches. Back up PostgreSQL and package storage together. Cleanup deletes files after the grace period, so preview the policy before enabling it.
 
 Administrator APIs: `GET/PATCH /api/cache/policy`, `POST /api/cache/maintenance` with `{ "dryRun": true, "orphans": true }`, and `PUT /api/cache/<id>/<version>/protection` with `{ "protected": true }`. Named-feed routes use `/feeds/<name>` before these paths.
+
+Mirrored upstream archives have independent retention and are excluded from automatic quota/idle eviction. Clearing manual protection does not remove mirror retention. Pause a mirror before clearing its source cache. See [upstream mirrors](upstreams.md#live-discovery-and-mirrors).

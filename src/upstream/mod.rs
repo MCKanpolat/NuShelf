@@ -1,5 +1,7 @@
 pub mod cache;
+pub mod federation;
 pub mod http;
+pub mod mirror;
 pub mod sources;
 use crate::{
     AppState,

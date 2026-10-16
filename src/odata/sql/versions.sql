@@ -36,8 +36,7 @@ WITH versions AS (SELECT p.id AS id,v.version_sort,v.prerelease,v.listed,v.semve
         'PackageSize',c.size,
         'PackageHash',c.sha512,
         'Published',c.catalog->>'published',
-        '_frameworks',(SELECT jsonb_agg(g->>'targetFramework')
-    FROM jsonb_array_elements(c.catalog->'dependencyGroups') g),
+        '_frameworks',c.assets->'frameworks',
         'Created',c.cached_at,
         'LastUpdated',c.cached_at,
         'IsPrerelease',c.prerelease,

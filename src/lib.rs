@@ -155,6 +155,15 @@ pub(crate) async fn js() -> impl IntoResponse {
         include_str!("../web/app.js"),
     )
 }
+pub(crate) async fn upstream_js() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=300"),
+        ],
+        include_str!("../web/upstream-discovery.js"),
+    )
+}
 const READY_TIMEOUT: Duration = Duration::from_secs(3);
 const WRITE_PROBE_TTL: Duration = Duration::from_secs(30);
 const STORAGE_PROBE_PREFIX: &str = ".nushelf-readiness-probe";

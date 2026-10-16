@@ -427,7 +427,7 @@ pub async fn cache_list(
     headers: HeaderMap,
 ) -> ApiResult<Json<Value>> {
     admin(&state, &headers)?;
-    let rows:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',c.catalog->>'id','version',c.version,'sourceId',s.id,'source',s.name,'private',s.private,'size',c.size,'downloads',c.downloads,'cachedAt',c.cached_at,'protected',c.protected,'lastAccessedAt',c.last_accessed_at) FROM upstream_cache c JOIN upstream_metadata m USING(package_id) JOIN upstream_sources s ON s.id=m.source_id ORDER BY c.cached_at DESC LIMIT 500").fetch_all(&state.db).await?;
+    let rows:Vec<Value>=sqlx::query_scalar("SELECT jsonb_build_object('id',c.catalog->>'id','version',c.version,'sourceId',s.id,'source',s.name,'private',s.private,'size',c.size,'downloads',c.downloads,'cachedAt',c.cached_at,'protected',c.protected,'mirrored',c.mirrored,'lastAccessedAt',c.last_accessed_at) FROM upstream_cache c JOIN upstream_metadata m USING(package_id) JOIN upstream_sources s ON s.id=m.source_id ORDER BY c.cached_at DESC LIMIT 500").fetch_all(&state.db).await?;
     Ok(Json(json!(rows)))
 }
 pub async fn purge(
@@ -441,6 +441,18 @@ pub async fn purge(
         .bind(format!("source:{id}"))
         .execute(&mut *tx)
         .await?;
+    let active:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM upstream_mirrors WHERE source_id=$1 AND (enabled OR requested))").bind(id).fetch_one(&mut *tx).await?;
+    if active {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "Pause this source's mirror before clearing its cache".into(),
+        ));
+    }
+    sqlx::query("DELETE FROM upstream_mirror_jobs WHERE source_id=$1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE upstream_mirrors SET cursor='{}',discovery_complete=false,status='idle' WHERE source_id=$1").bind(id).execute(&mut *tx).await?;
     let keys:Vec<String>=sqlx::query_scalar("SELECT storage_key FROM upstream_cache c JOIN upstream_metadata m USING(package_id) WHERE m.source_id=$1").bind(id).fetch_all(&mut *tx).await?;
     sqlx::query("DELETE FROM upstream_metadata WHERE source_id=$1")
         .bind(id)
@@ -477,6 +489,13 @@ pub async fn delete(
         .bind(format!("source:{id}"))
         .execute(&mut *tx)
         .await?;
+    let active:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM upstream_mirrors WHERE source_id=$1 AND (enabled OR requested))").bind(id).fetch_one(&mut *tx).await?;
+    if active {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "Pause this source's mirror before deleting it".into(),
+        ));
+    }
     let used: bool =
         sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM upstream_metadata WHERE source_id=$1)")
             .bind(id)

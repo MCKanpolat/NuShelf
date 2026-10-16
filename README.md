@@ -352,9 +352,9 @@ Tests exercise NuGet version ordering, malformed ZIP/XML handling, ownership, ke
 
 ## Current scope
 
-**Implemented:** NuGet V3 resources, legacy NuGet OData V2 feeds, V2-shaped push/delete endpoints, package ownership, scoped keys, private team feeds and roles, GitHub OIDC Trusted Publishing, gallery/management UI, sanitized package READMEs/icons, deprecation metadata, locally mirrored NuGet Audit data, audit history/signed webhooks, PostgreSQL search, pluggable storage, multiple upstreams with read-through cache/private grants, quota and orphan maintenance, and read-only MCP.
+**Implemented:** NuGet V3 resources, legacy NuGet OData V2 feeds, V2-shaped push/delete endpoints, package ownership, scoped keys, private team feeds and roles, GitHub OIDC Trusted Publishing, gallery/management UI, sanitized package READMEs/icons, deprecation metadata, locally mirrored NuGet Audit data, audit history/signed webhooks, PostgreSQL search, pluggable storage, multiple upstreams with read-through cache/private grants, durable full mirrors and live federated keyword discovery, quota and orphan maintenance, and read-only MCP.
 
-**Not implemented yet:** Windows PDBs and `.symbols.nupkg` symbol serving, proactive/full upstream mirroring, federated upstream keyword search, NuGet catalog feeds, package signature validation, password/OIDC browser sign-in, email flows, public self-registration, and private reads in the root registry (named feeds support private local packages).
+**Not implemented yet:** Windows PDBs and `.symbols.nupkg` symbol serving, NuGet catalog feeds, package signature validation, password/OIDC browser sign-in, email flows, public self-registration, and private reads in the root registry (named feeds support private local packages).
 
 An interrupted upload can leave an unreferenced blob after storage succeeds but before the database commits; orphan cleanup runs when cache maintenance is enabled. Readiness checks PostgreSQL and that the package store can be listed and written. The deployment guide covers [backup and restore](docs/deployment.md#backup-and-restore), [abuse protection](docs/deployment.md#abuse-protection) and other operational boundaries.
 
