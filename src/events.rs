@@ -19,7 +19,11 @@ use sqlx::FromRow;
 use std::time::Duration;
 use uuid::Uuid;
 fn kind(method: &str, path: &str) -> &'static str {
-    if path.ends_with("/api/v2/package") || path.ends_with("/api/v2/package/") {
+    if path.ends_with("/api/v2/symbolpackage") || path.ends_with("/api/v2/symbolpackage/") {
+        "symbols.published"
+    } else if method == "DELETE" && path.contains("/api/packages/") && path.ends_with("/symbols") {
+        "symbols.deleted"
+    } else if path.ends_with("/api/v2/package") || path.ends_with("/api/v2/package/") {
         "package.published"
     } else if path.contains("/api/v2/package/") {
         if method == "DELETE" {
@@ -197,6 +201,8 @@ fn validate(input: &HookInput) -> ApiResult<()> {
                 "package.published",
                 "package.unlisted",
                 "package.relisted",
+                "symbols.published",
+                "symbols.deleted",
                 "credential.created",
                 "credential.revoked",
                 "upstream.changed",

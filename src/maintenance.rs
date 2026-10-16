@@ -94,7 +94,7 @@ struct Candidate {
     last_accessed_at: DateTime<Utc>,
 }
 async fn referenced(state: &AppState, key: &str) -> ApiResult<bool> {
-    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM package_versions WHERE storage_key=$1 UNION ALL SELECT 1 FROM upstream_cache WHERE storage_key=$1)").bind(key).fetch_one(&state.db).await?)
+    Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM package_versions WHERE storage_key=$1 UNION ALL SELECT 1 FROM upstream_cache WHERE storage_key=$1 UNION ALL SELECT 1 FROM symbol_files WHERE storage_key=$1)").bind(key).fetch_one(&state.db).await?)
 }
 pub async fn execute(state: &AppState, dry_run: bool, orphans: bool) -> ApiResult<Value> {
     let mut tx = state.db.begin().await?;
@@ -197,7 +197,7 @@ pub async fn execute(state: &AppState, dry_run: bool, orphans: bool) -> ApiResul
         let cursor = batch.last_key_value().map(|(key, _)| key.clone());
         for (key, meta) in batch {
             scanned += 1;
-            if key.ends_with(".nupkg")
+            if (key.ends_with(".nupkg") || key.ends_with(".pdb"))
                 && meta.last_modified < Utc::now() - chrono::Duration::hours(24)
                 && !referenced(state, &key).await?
             {

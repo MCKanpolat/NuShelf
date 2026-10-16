@@ -97,6 +97,7 @@ pub async fn service_index(State(state): State<AppState>) -> ApiResult<Json<Valu
         {"@id":format!("{base}/v3/search"),"@type":"SearchQueryService/3.5.0"},
         {"@id":format!("{base}/v3/autocomplete"),"@type":"SearchAutocompleteService/3.5.0"},
         {"@id":format!("{base}/api/v2/package"),"@type":"PackagePublish/2.0.0"},
+        {"@id":format!("{base}/api/v2/symbolpackage"),"@type":"SymbolPackagePublish/4.9.0"},
         {"@id":format!("{base}/packages/{{id}}/{{version}}"),"@type":"PackageDetailsUriTemplate/5.1.0"}
     ]});
     if crate::audit::available(&state).await? {
@@ -104,9 +105,9 @@ pub async fn service_index(State(state): State<AppState>) -> ApiResult<Json<Valu
     }
     Ok(Json(index))
 }
-pub async fn push(State(state): State<AppState>, request: Request) -> ApiResult<Response> {
-    let identity = auth::authenticate(&state, request.headers()).await?;
-    identity.require("package:push")?;
+/// Reads an upload body. NuGet clients send multipart/form-data; raw
+/// application/octet-stream is also accepted. Shared by package and symbol push.
+pub(crate) async fn read_upload(state: &AppState, request: Request) -> ApiResult<Bytes> {
     // NuGet clients send multipart/form-data; raw application/octet-stream is also accepted.
     let multipart = request
         .headers()
@@ -114,7 +115,7 @@ pub async fn push(State(state): State<AppState>, request: Request) -> ApiResult<
         .and_then(|h| h.to_str().ok())
         .is_some_and(|h| h.starts_with("multipart/form-data"));
     let bytes = if multipart {
-        let mut multipart = Multipart::from_request(request, &state)
+        let mut multipart = Multipart::from_request(request, state)
             .await
             .map_err(|_| ApiError::bad("Invalid multipart upload"))?;
         let field = multipart
@@ -138,7 +139,7 @@ pub async fn push(State(state): State<AppState>, request: Request) -> ApiResult<
         }
         bytes
     } else {
-        Bytes::from_request(request, &state).await.map_err(|_| {
+        Bytes::from_request(request, state).await.map_err(|_| {
             ApiError(
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "Upload exceeds the configured limit".into(),
@@ -151,6 +152,12 @@ pub async fn push(State(state): State<AppState>, request: Request) -> ApiResult<
             "Package is empty or exceeds the configured limit".into(),
         ));
     }
+    Ok(bytes)
+}
+pub async fn push(State(state): State<AppState>, request: Request) -> ApiResult<Response> {
+    let identity = auth::authenticate(&state, request.headers()).await?;
+    identity.require("package:push")?;
+    let bytes = read_upload(&state, request).await?;
     let parse_bytes = bytes.clone();
     let parsed = tokio::task::spawn_blocking(move || package::parse(&parse_bytes))
         .await
@@ -580,7 +587,8 @@ pub async fn details_value(state: &AppState, id: &str) -> ApiResult<Value> {
     let mut result = catalog(state, latest);
     result["owner"] = json!(latest.owner_name);
     result["totalDownloads"] = json!(latest.total_downloads);
-    result["versions"] = json!(rows.iter().rev().map(|p| json!({"version":p.display_version,"normalizedVersion":p.version,"listed":p.listed,"prerelease":p.prerelease,"published":p.published_at,"downloads":p.downloads,"size":p.size,"dependencies":p.dependencies,"deprecation":p.deprecation,"downloadUrl":content_url(state,p)})).collect::<Vec<_>>());
+    let symbols = crate::symbols::summary(state, &latest.package_id).await?;
+    result["versions"] = json!(rows.iter().rev().map(|p| json!({"version":p.display_version,"normalizedVersion":p.version,"listed":p.listed,"prerelease":p.prerelease,"published":p.published_at,"downloads":p.downloads,"size":p.size,"dependencies":p.dependencies,"deprecation":p.deprecation,"downloadUrl":content_url(state,p),"symbols":symbols.get(&p.version)})).collect::<Vec<_>>());
     crate::audit::decorate(state, &mut result).await?;
     Ok(result)
 }

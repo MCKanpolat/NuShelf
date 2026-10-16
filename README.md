@@ -39,6 +39,7 @@ Inspired by [BaGet](https://github.com/loic-sharma/BaGet)'s straightforward depl
 | **Trusted Publishing** | Exchange GitHub Actions OIDC tokens for ten-minute keys restricted to a workflow, immutable repository IDs, package prefix and feed. |
 | **Profile API keys** | Give each application its own key with explicit permissions, an optional package prefix, and an expiration date. Revoke keys independently. Full keys are shown once and stored as SHA-256 digests. |
 | **Deprecation management** | Mark versions as deprecated, recommend replacement packages, and expose metadata to NuGet clients while preserving existing restores. |
+| **Symbol packages** | Push `.snupkg` files with the normal `dotnet nuget push` and serve their portable PDBs to Visual Studio, Rider and the .NET debugger through a built-in symbol server that follows package visibility. |
 | **Package ownership** | The first publishing profile owns a package ID. Other profiles cannot publish versions under that ID. Published versions are immutable; unlisting preserves existing restores. |
 | **PostgreSQL search** | Weighted full-text search and indexed ID prefixes run first; trigram similarity provides a fallback. Search documents update in the same transaction as package metadata. |
 | **Flexible storage** | Choose a local filesystem, AWS S3 or an S3-compatible service, Azure Blob Storage, or Google Cloud Storage through a shared storage interface. Package downloads are streamed. |
@@ -353,7 +354,7 @@ Tests exercise NuGet version ordering, malformed ZIP/XML handling, ownership, ke
 
 **Implemented:** NuGet V3 resources, V2-shaped push/delete endpoints, package ownership, scoped keys, private team feeds and roles, GitHub OIDC Trusted Publishing, gallery/management UI, sanitized package READMEs/icons, deprecation metadata, locally mirrored NuGet Audit data, audit history/signed webhooks, PostgreSQL search, pluggable storage, multiple upstreams with read-through cache/private grants, quota and orphan maintenance, and read-only MCP.
 
-**Not implemented yet:** legacy OData V2 feeds, symbol serving / `.snupkg`, proactive/full upstream mirroring, federated upstream keyword search, NuGet catalog feeds, package signature validation, password/OIDC browser sign-in, email flows, public self-registration, and private reads in the root registry (named feeds support private local packages).
+**Not implemented yet:** legacy OData V2 feeds, Windows PDBs and `.symbols.nupkg` symbol serving, proactive/full upstream mirroring, federated upstream keyword search, NuGet catalog feeds, package signature validation, password/OIDC browser sign-in, email flows, public self-registration, and private reads in the root registry (named feeds support private local packages).
 
 An interrupted upload can leave an unreferenced blob after storage succeeds but before the database commits; orphan cleanup runs when cache maintenance is enabled. Readiness checks PostgreSQL and that the package store can be listed and written. The deployment guide covers [backup and restore](docs/deployment.md#backup-and-restore), [abuse protection](docs/deployment.md#abuse-protection) and other operational boundaries.
 
@@ -365,6 +366,7 @@ An interrupted upload can leave an unreferenced blob after storage succeeds but 
 | [Helm chart](charts/nushelf/README.md) | Kubernetes installation, storage providers, workload identity, Ingress or Gateway API routing, and chart values. |
 | [Trusted Publishing](docs/trusted-publishing.md) | GitHub Actions OIDC policies, temporary credentials and example workflow. |
 | [Deprecation](docs/deprecation.md) | Version lifecycle, replacement recommendations and NuGet client metadata. |
+| [Symbols](docs/symbols.md) | Publishing `.snupkg` files, the symbol server URL, debugger setup, validation and replacement. |
 | [Rich package pages](docs/package-pages.md) | Embedded README, icons, framework metadata and safe rendering. |
 | [Audit log and webhooks](docs/events.md) | Mutation history, signed events, subscriptions and delivery retries. |
 | [Cache maintenance](docs/cache-maintenance.md) | Soft quotas, last-access eviction, protected versions and orphan cleanup. |

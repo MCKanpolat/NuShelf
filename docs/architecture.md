@@ -33,6 +33,7 @@ flowchart LR
 | `audit` | NuGet vulnerability snapshots, fixed-source synchronization and affected-version lookup |
 | `maintenance` | Cache quota/idle eviction, protected versions, delayed deletion and bounded orphan scans |
 | `events` | Audit attempts, sanitized results, durable webhook outbox and signed delivery retries |
+| `symbols` | `.snupkg` validation, portable-PDB identification, per-PDB storage and the symbol server endpoint |
 | `assets` / `deprecation` | Safe Markdown and package assets, ownership-protected lifecycle metadata |
 | `trusted` | GitHub JWKS/signature and claim verification, token replay prevention and temporary feed-bound credentials |
 | `routes` | Route tables grouped by audience (web, NuGet V3, push, packages, identity, operations, integrations, feed dispatch) |
@@ -54,6 +55,10 @@ flowchart LR
 Readers only observe committed metadata. PostgreSQL constraints and locks cover multiple server replicas. The object store and PostgreSQL do not share a distributed transaction. If the process dies after a blob is written but before commit, the blob can remain orphaned. Backups need both PostgreSQL and storage; restoration must preserve storage keys. Unlist/relist preserves blob content and downloadable versions.
 
 Normalized URL identity is lowercase and drops build metadata. Display metadata keeps normalized full versions. Precedence supports four numeric components and case-insensitive NuGet prerelease identifiers. Numeric prerelease identifiers sort numerically; releases sort after prereleases for the same numeric version. Search has separate channels to exclude SemVer2 packages for clients that do not advertise `semVerLevel=2.0.0`.
+
+## Symbols
+
+`SymbolPackagePublish/4.9.0` in the service index points NuGet clients at `PUT /api/v2/symbolpackage`. A symbol push takes the same advisory lock as package push, requires an existing version owned by the caller and rejects a second symbol package for that version. Each portable PDB is stored as its own object (`{id}/{version}/{uuid}.pdb`) and indexed by file name and the key debuggers derive from the PDB ID, so `GET /symbols/{file}/{key}/{file}` is one indexed lookup plus one object read. The orphan scan treats `.pdb` objects like `.nupkg` objects and consults `symbol_files` before deleting. Details: [symbols guide](symbols.md).
 
 ## Search
 

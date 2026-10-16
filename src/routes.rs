@@ -1,8 +1,8 @@
 //! Route tables, grouped by audience. Each group is a plain `Router` so it can
 //! be wrapped with the layers that suit it (timeouts, body limits).
 use crate::{
-    AppState, assets, audit, auth, deprecation, events, feeds, maintenance, mcp, registry, trusted,
-    upstream,
+    AppState, assets, audit, auth, deprecation, events, feeds, maintenance, mcp, registry, symbols,
+    trusted, upstream,
 };
 use axum::{
     Router,
@@ -47,6 +47,7 @@ pub fn nuget_v3() -> Router<AppState> {
         )
         .route("/v3/vulnerabilities/index.json", get(audit::index))
         .route("/v3/vulnerabilities/{file}", get(audit::page))
+        .route("/symbols/{file}/{key}/{file_again}", get(symbols::download))
 }
 
 /// Package push. Kept apart because it needs its own body limit and timeout.
@@ -54,6 +55,8 @@ pub fn push() -> Router<AppState> {
     Router::new()
         .route("/api/v2/package", put(registry::push))
         .route("/api/v2/package/", put(registry::push))
+        .route("/api/v2/symbolpackage", put(symbols::push))
+        .route("/api/v2/symbolpackage/", put(symbols::push))
 }
 
 /// Package lifecycle, package metadata and statistics.
@@ -66,6 +69,10 @@ pub fn packages() -> Router<AppState> {
         .route(
             "/api/v2/package/{id}/{version}/",
             delete(registry::unlist).post(registry::relist),
+        )
+        .route(
+            "/api/packages/{id}/{version}/symbols",
+            delete(symbols::delete),
         )
         .route("/api/stats", get(upstream::stats))
         .route("/api/packages/{id}", get(upstream::details))

@@ -22,11 +22,11 @@ pub struct ParsedPackage {
     pub nuspec: Vec<u8>,
     pub assets: Value,
 }
-fn child<'a, 'input>(node: Node<'a, 'input>, name: &str) -> Option<Node<'a, 'input>> {
+pub(crate) fn child<'a, 'input>(node: Node<'a, 'input>, name: &str) -> Option<Node<'a, 'input>> {
     node.children()
         .find(|c| c.is_element() && c.tag_name().name() == name)
 }
-fn text(node: Node<'_, '_>, name: &str) -> String {
+pub(crate) fn text(node: Node<'_, '_>, name: &str) -> String {
     child(node, name)
         .and_then(|c| c.text())
         .unwrap_or_default()

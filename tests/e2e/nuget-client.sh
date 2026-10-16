@@ -30,6 +30,25 @@ if [ -d /artifacts ]; then
 fi
 echo 'PASS: real dotnet push, package install, restore, build, unlist, and restore after unlisting via S3 storage.'
 
+# Symbols: one `dotnet nuget push` of the .nupkg also sends its sibling .snupkg to
+# the SymbolPackagePublish endpoint, reusing the same API key.
+symbol_package="NuShelf.SymbolTest.$(date +%s)"
+dotnet pack "$task_root/TestPackage/TestPackage.csproj" -p:PackageId="$symbol_package" -p:Version=1.0.0 -p:IncludeSymbols=true -p:SymbolPackageFormat=snupkg -o "$task_root/symbol-packages"
+test -f "$task_root/symbol-packages/$symbol_package.1.0.0.snupkg"
+dotnet nuget push "$task_root/symbol-packages/$symbol_package.1.0.0.nupkg" --source "$base/v3/index.json" --api-key "$key" | tee "$task_root/symbol-push.log"
+grep -q 'snupkg' "$task_root/symbol-push.log"
+# The symbol key is computed independently of the server: from the CodeView record
+# in the built DLL (GUID stored little-endian) plus the portable-PDB age.
+dll="$task_root/TestPackage/bin/Release/net8.0/TestPackage.dll"
+offset=$(grep -obUaP 'RSDS' "$dll" | head -1 | cut -d: -f1)
+bytes=($(od -An -tx1 -j $((offset + 4)) -N16 -v "$dll"))
+symbol_key="${bytes[3]}${bytes[2]}${bytes[1]}${bytes[0]}${bytes[5]}${bytes[4]}${bytes[7]}${bytes[6]}${bytes[8]}${bytes[9]}${bytes[10]}${bytes[11]}${bytes[12]}${bytes[13]}${bytes[14]}${bytes[15]}ffffffff"
+curl --fail-with-body -s "$base/symbols/testpackage.pdb/$symbol_key/testpackage.pdb" -o "$task_root/served.pdb"
+cmp "$task_root/served.pdb" "$task_root/TestPackage/bin/Release/net8.0/TestPackage.pdb"
+# A repeated push is skipped as a duplicate by the real client (409 for both files).
+dotnet nuget push "$task_root/symbol-packages/$symbol_package.1.0.0.nupkg" --source "$base/v3/index.json" --api-key "$key" --skip-duplicate
+echo 'PASS: real dotnet pushed a .snupkg through SymbolPackagePublish and the symbol server returned the exact PDB for the key derived from the DLL.'
+
 # A second origin serves a real generated package. Only NuShelf is configured on the consumer.
 mkdir -p /artifacts/proxy-fixtures
 rm -f /artifacts/proxy-fixtures/.offline

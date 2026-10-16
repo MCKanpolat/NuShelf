@@ -4,7 +4,7 @@ Workspace administrators can inspect **Manage → Audit log** and configure **Ma
 
 Management mutations create an audit attempt before executing. The record captures the actor/profile key ID, feed, method, path, event type, sanitized target ID/version and HTTP result. Authorization headers, request bodies, URL query strings and returned API keys are never stored. An interrupted process can leave a pending record; a completed action whose audit finalization failed also remains pending and is logged for reconciliation. Audit records have no edit/delete API.
 
-Successful HTTP mutations enqueue matching webhook deliveries when the audit result is finalized. Events include `package.published`, `package.unlisted`, `package.relisted`, `credential.created`, `credential.revoked`, `upstream.changed`, `cache.changed` and `management.changed`. Scheduled maintenance and advisory sync are reported by their own status screens and do not emit HTTP mutation events.
+Successful HTTP mutations enqueue matching webhook deliveries when the audit result is finalized. Events include `package.published`, `package.unlisted`, `package.relisted`, `symbols.published`, `symbols.deleted`, `credential.created`, `credential.revoked`, `upstream.changed`, `cache.changed` and `management.changed`. Scheduled maintenance and advisory sync are reported by their own status screens and do not emit HTTP mutation events.
 
 ## Delivery and verification
 

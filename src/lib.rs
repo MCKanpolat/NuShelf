@@ -14,6 +14,7 @@ pub mod package;
 pub mod registry;
 pub mod routes;
 pub mod storage;
+pub mod symbols;
 pub mod telemetry;
 pub mod trusted;
 pub mod upstream;
