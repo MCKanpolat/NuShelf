@@ -691,6 +691,7 @@ async fn trusted_checks(c: &Client, base: &str, state: &AppState, profile: &str,
             .status(),
         StatusCode::UNAUTHORIZED
     );
+    let exchange_started = chrono::Utc::now();
     let issued = json_response(
         c.post(format!("{base}/api/trusted-publishing/exchange"))
             .json(&json!({"token":token}))
@@ -699,6 +700,17 @@ async fn trusted_checks(c: &Client, base: &str, state: &AppState, profile: &str,
             .unwrap(),
     )
     .await;
+    let exchange_finished = chrono::Utc::now();
+    let expiry =
+        chrono::DateTime::parse_from_rfc3339(issued["expiresAt"].as_str().unwrap()).unwrap();
+    let lifetime = chrono::Duration::minutes(10);
+    // The server starts the key's lifetime during this exchange, after earlier
+    // authentication checks have completed.
+    assert!(
+        expiry >= exchange_started + lifetime && expiry <= exchange_finished + lifetime,
+        "Key expiry {expiry} must be ten minutes after issuance during \
+         {exchange_started}..={exchange_finished}"
+    );
     assert_eq!(
         c.post(format!("{base}/api/trusted-publishing/exchange"))
             .json(&json!({"token":token}))
@@ -720,9 +732,6 @@ async fn trusted_checks(c: &Client, base: &str, state: &AppState, profile: &str,
     .await;
     assert_eq!(me["scopes"], json!(["package:push", "package:read"]));
     assert_eq!(me["packagePrefix"], "trusted.");
-    let expiry =
-        chrono::DateTime::parse_from_rfc3339(issued["expiresAt"].as_str().unwrap()).unwrap();
-    assert!(expiry.timestamp() - now <= 601);
     assert_eq!(
         c.get(format!("{base}/api/me"))
             .bearer_auth(key)
