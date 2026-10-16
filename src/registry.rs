@@ -95,6 +95,7 @@ pub async fn service_index(State(state): State<AppState>) -> ApiResult<Json<Valu
         {"@id":format!("{base}/v3/flatcontainer/"),"@type":"PackageBaseAddress/3.0.0"},
         {"@id":format!("{base}/v3/registration/"),"@type":"RegistrationsBaseUrl/3.6.0"},
         {"@id":format!("{base}/v3/search"),"@type":"SearchQueryService/3.5.0"},
+        {"@id":format!("{base}/v3/catalog/index.json"),"@type":"Catalog/3.0.0"},
         {"@id":format!("{base}/v3/autocomplete"),"@type":"SearchAutocompleteService/3.5.0"},
         {"@id":format!("{base}/api/v2/package"),"@type":"PackagePublish/2.0.0"},
         {"@id":format!("{base}/api/v2/symbolpackage"),"@type":"SymbolPackagePublish/4.9.0"},

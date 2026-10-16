@@ -130,7 +130,7 @@ async fn postgres_registry_local_and_s3() {
         )
         .await;
         assert_eq!(index["version"], "3.0.0");
-        assert_eq!(index["resources"].as_array().unwrap().len(), 7);
+        assert_eq!(index["resources"].as_array().unwrap().len(), 8);
         let readiness = value(
             client
                 .get(format!("{base}/health/ready"))

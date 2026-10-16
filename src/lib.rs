@@ -2,6 +2,7 @@ pub mod assets;
 pub mod audit;
 pub mod auth;
 pub mod backup;
+pub mod catalog;
 pub mod config;
 pub mod deprecation;
 pub mod error;

@@ -27,6 +27,29 @@ async fn run(s: &Server, id: Uuid) {
     }
     panic!("Mirror did not finish");
 }
+async fn search_only_index(origin: &Server) -> (String, tokio::task::JoinHandle<()>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/index.json", listener.local_addr().unwrap());
+    let mut index = nushelf::registry::service_index(axum::extract::State(origin.state.clone()))
+        .await
+        .unwrap()
+        .0;
+    index["resources"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|r| r["@type"] != "Catalog/3.0.0");
+    let app = axum::Router::new().route(
+        "/index.json",
+        axum::routing::get(move || {
+            let index = index.clone();
+            async move { axum::Json(index) }
+        }),
+    );
+    (
+        url,
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() }),
+    )
+}
 #[tokio::test]
 #[ignore = "requires TEST_DATABASE_URL"]
 async fn full_search_mirror_and_live_federation() {
@@ -43,14 +66,9 @@ async fn full_search_mirror_and_live_federation() {
     assert_eq!(r.status(), 204);
     let second = Server::start().await;
     second.push("Partner.Json", "1.0.0").await;
+    let (search_url, search_task) = search_only_index(&origin).await;
     let destination = Server::start().await;
-    let id = source(
-        &destination,
-        "first",
-        &format!("{}/v3/index.json", origin.base),
-        false,
-    )
-    .await;
+    let id = source(&destination, "first", &search_url, false).await;
     let private = source(
         &destination,
         "private",
@@ -204,6 +222,7 @@ async fn full_search_mirror_and_live_federation() {
     )
     .await;
     assert_eq!(status["status"], "failed");
+    search_task.abort();
     second.stop().await;
     destination.stop().await;
     let _ = private;

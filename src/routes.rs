@@ -1,8 +1,8 @@
 //! Route tables, grouped by audience. Each group is a plain `Router` so it can
 //! be wrapped with the layers that suit it (timeouts, body limits).
 use crate::{
-    AppState, assets, audit, auth, deprecation, events, feeds, maintenance, mcp, odata, registry,
-    symbols, trusted, upstream,
+    AppState, assets, audit, auth, catalog, deprecation, events, feeds, maintenance, mcp, odata,
+    registry, symbols, trusted, upstream,
 };
 use axum::{
     Router,
@@ -31,6 +31,9 @@ pub fn web() -> Router<AppState> {
 pub fn nuget_v3() -> Router<AppState> {
     Router::new()
         .route("/v3/index.json", get(registry::service_index))
+        .route("/v3/catalog/index.json", get(catalog::index))
+        .route("/v3/catalog/pages/{file}", get(catalog::page))
+        .route("/v3/catalog/leaves/{file}", get(catalog::leaf))
         .route("/v3/search", get(upstream::search))
         .route("/v3/autocomplete", get(upstream::autocomplete))
         .route("/v3/flatcontainer/{id}/index.json", get(upstream::versions))
