@@ -21,6 +21,7 @@ pub mod telemetry;
 pub mod trusted;
 pub mod upstream;
 pub mod version;
+pub mod webhooks;
 
 use axum::{
     Json, Router,
@@ -163,6 +164,15 @@ pub(crate) async fn upstream_js() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=300"),
         ],
         include_str!("../web/upstream-discovery.js"),
+    )
+}
+pub(crate) async fn webhooks_js() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "public, max-age=300"),
+        ],
+        include_str!("../web/webhooks.js"),
     )
 }
 const READY_TIMEOUT: Duration = Duration::from_secs(3);

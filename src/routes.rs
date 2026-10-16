@@ -2,7 +2,7 @@
 //! be wrapped with the layers that suit it (timeouts, body limits).
 use crate::{
     AppState, assets, audit, auth, catalog, deprecation, events, feeds, maintenance, mcp, odata,
-    registry, symbols, trusted, upstream,
+    registry, symbols, trusted, upstream, webhooks,
 };
 use axum::{
     Router,
@@ -22,6 +22,7 @@ pub fn web() -> Router<AppState> {
         .route("/docs", get(crate::home))
         .route("/assets/app.css", get(crate::css))
         .route("/assets/app.js", get(crate::js))
+        .route("/assets/webhooks.js", get(crate::webhooks_js))
         .route("/assets/upstream-discovery.js", get(crate::upstream_js))
         .route("/health/live", get(crate::live))
         .route("/health/ready", get(crate::ready))
@@ -184,10 +185,18 @@ pub fn operations() -> Router<AppState> {
 pub fn integrations() -> Router<AppState> {
     Router::new()
         .route("/api/events", get(events::list))
-        .route("/api/webhooks", get(events::hooks).post(events::create))
-        .route("/api/webhooks/deliveries", get(events::deliveries))
-        .route("/api/webhooks/dispatch", post(events::deliver_now))
-        .route("/api/webhooks/{id}", delete(events::disable))
+        .route("/api/webhooks", get(webhooks::hooks).post(webhooks::create))
+        .route("/api/webhooks/deliveries", get(webhooks::deliveries))
+        .route("/api/webhooks/deliveries/{id}/retry", post(webhooks::retry))
+        .route(
+            "/api/webhooks/deliveries/{id}/attempts",
+            get(webhooks::attempts),
+        )
+        .route("/api/webhooks/dispatch", post(webhooks::deliver_now))
+        .route(
+            "/api/webhooks/{id}",
+            delete(webhooks::disable).put(webhooks::update),
+        )
         .route(
             "/mcp",
             post(mcp::endpoint)

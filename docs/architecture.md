@@ -32,7 +32,8 @@ flowchart LR
 | `feeds` | Named-feed authorization, schema pools, shared identities and scoped object-store prefixes |
 | `audit` | NuGet vulnerability snapshots, fixed-source synchronization and affected-version lookup |
 | `maintenance` | Cache quota/idle eviction, protected versions, delayed deletion and bounded orphan scans |
-| `events` | Audit attempts, sanitized results, durable webhook outbox and signed delivery retries |
+| `events` | Audit attempts, sanitized results and transactional webhook enqueueing |
+| `webhooks` | Receiver configuration, signed deliveries, retry cycles and attempt history |
 | `symbols` | `.snupkg` validation, portable-PDB identification, per-PDB storage and the symbol server endpoint |
 | `assets` / `deprecation` | Safe Markdown and package assets, ownership-protected lifecycle metadata |
 | `trusted` | GitHub JWKS/signature and claim verification, token replay prevention and temporary feed-bound credentials |
