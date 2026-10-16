@@ -70,3 +70,9 @@ origin_after=$(curl --fail-with-body -s http://proxy-origin:8080/stats)
 test "$origin_before" = "$origin_after"
 rm -f /artifacts/proxy-fixtures/.offline
 echo 'PASS: real dotnet restore through upstream proxy, cache HIT, one origin download, and restore/build during an upstream outage.'
+
+# Force a cold restore through the legacy feed, including an unlisted exact version.
+sed -i 's|/v3/index.json|/api/v2|g' "$task_root/Consumer/NuGet.Config"
+dotnet restore "$task_root/Consumer/Consumer.csproj" --no-cache --force --packages "$task_root/v2-packages"
+dotnet build "$task_root/Consumer/Consumer.csproj" --no-restore
+echo 'PASS: real dotnet cold restore and build through OData V2.'

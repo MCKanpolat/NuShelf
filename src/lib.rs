@@ -10,6 +10,7 @@ pub mod feeds;
 pub mod guard;
 pub mod maintenance;
 pub mod mcp;
+pub mod odata;
 pub mod package;
 pub mod registry;
 pub mod routes;
@@ -72,6 +73,7 @@ pub fn scoped_router(state: AppState) -> Router {
     let timed = Router::new()
         .merge(routes::web())
         .merge(routes::nuget_v3())
+        .merge(routes::nuget_v2())
         .merge(routes::packages())
         .merge(routes::identity())
         .merge(routes::operations())

@@ -293,7 +293,7 @@ The [Helm chart](../charts/nushelf/README.md) deploys the registry against an ex
 
 - Root-registry reads and discovery are public. Named feeds support private local packages, isolated namespaces and team membership; see [named feeds](feeds.md). Private upstream caches use source grants and `package:read`; see [upstream configuration](upstreams.md).
 - Browser sign-in uses API keys; password/SSO, email flows and public self-registration are not implemented. GitHub Actions OIDC is supported for [Trusted Publishing](trusted-publishing.md).
-- The V3 API and V2-shaped publication endpoint are implemented; legacy OData V2 feeds are not. [Symbol packages](symbols.md) are supported.
+- The V3 API and [legacy NuGet OData V2 feeds](odata.md) are implemented. [Symbol packages](symbols.md) are supported.
 - Storage upload completes before metadata commits. An interruption can leave an unreferenced blob; orphan cleanup is available through opt-in [cache maintenance](cache-maintenance.md).
 - Backups need both PostgreSQL and package storage; see [Backup and restore](#backup-and-restore). Moving to another provider is a storage export and import.
 - Readiness validates PostgreSQL, lists the package store and writes then deletes a small probe object (cached for 30 seconds), so read-only buckets and credentials without write access take the replica out of service.

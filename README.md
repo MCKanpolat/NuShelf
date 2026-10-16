@@ -352,9 +352,9 @@ Tests exercise NuGet version ordering, malformed ZIP/XML handling, ownership, ke
 
 ## Current scope
 
-**Implemented:** NuGet V3 resources, V2-shaped push/delete endpoints, package ownership, scoped keys, private team feeds and roles, GitHub OIDC Trusted Publishing, gallery/management UI, sanitized package READMEs/icons, deprecation metadata, locally mirrored NuGet Audit data, audit history/signed webhooks, PostgreSQL search, pluggable storage, multiple upstreams with read-through cache/private grants, quota and orphan maintenance, and read-only MCP.
+**Implemented:** NuGet V3 resources, legacy NuGet OData V2 feeds, V2-shaped push/delete endpoints, package ownership, scoped keys, private team feeds and roles, GitHub OIDC Trusted Publishing, gallery/management UI, sanitized package READMEs/icons, deprecation metadata, locally mirrored NuGet Audit data, audit history/signed webhooks, PostgreSQL search, pluggable storage, multiple upstreams with read-through cache/private grants, quota and orphan maintenance, and read-only MCP.
 
-**Not implemented yet:** legacy OData V2 feeds, Windows PDBs and `.symbols.nupkg` symbol serving, proactive/full upstream mirroring, federated upstream keyword search, NuGet catalog feeds, package signature validation, password/OIDC browser sign-in, email flows, public self-registration, and private reads in the root registry (named feeds support private local packages).
+**Not implemented yet:** Windows PDBs and `.symbols.nupkg` symbol serving, proactive/full upstream mirroring, federated upstream keyword search, NuGet catalog feeds, package signature validation, password/OIDC browser sign-in, email flows, public self-registration, and private reads in the root registry (named feeds support private local packages).
 
 An interrupted upload can leave an unreferenced blob after storage succeeds but before the database commits; orphan cleanup runs when cache maintenance is enabled. Readiness checks PostgreSQL and that the package store can be listed and written. The deployment guide covers [backup and restore](docs/deployment.md#backup-and-restore), [abuse protection](docs/deployment.md#abuse-protection) and other operational boundaries.
 
@@ -366,6 +366,7 @@ An interrupted upload can leave an unreferenced blob after storage succeeds but 
 | [Helm chart](charts/nushelf/README.md) | Kubernetes installation, storage providers, workload identity, Ingress or Gateway API routing, and chart values. |
 | [Trusted Publishing](docs/trusted-publishing.md) | GitHub Actions OIDC policies, temporary credentials and example workflow. |
 | [Deprecation](docs/deprecation.md) | Version lifecycle, replacement recommendations and NuGet client metadata. |
+| [OData V2](docs/odata.md) | Legacy NuGet discovery, Atom metadata, queries, updates, paging and downloads. |
 | [Symbols](docs/symbols.md) | Publishing `.snupkg` files, the symbol server URL, debugger setup, validation and replacement. |
 | [Rich package pages](docs/package-pages.md) | Embedded README, icons, framework metadata and safe rendering. |
 | [Audit log and webhooks](docs/events.md) | Mutation history, signed events, subscriptions and delivery retries. |

@@ -1,8 +1,8 @@
 //! Route tables, grouped by audience. Each group is a plain `Router` so it can
 //! be wrapped with the layers that suit it (timeouts, body limits).
 use crate::{
-    AppState, assets, audit, auth, deprecation, events, feeds, maintenance, mcp, registry, symbols,
-    trusted, upstream,
+    AppState, assets, audit, auth, deprecation, events, feeds, maintenance, mcp, odata, registry,
+    symbols, trusted, upstream,
 };
 use axum::{
     Router,
@@ -64,11 +64,15 @@ pub fn packages() -> Router<AppState> {
     Router::new()
         .route(
             "/api/v2/package/{id}/{version}",
-            delete(registry::unlist).post(registry::relist),
+            get(odata::download)
+                .delete(registry::unlist)
+                .post(registry::relist),
         )
         .route(
             "/api/v2/package/{id}/{version}/",
-            delete(registry::unlist).post(registry::relist),
+            get(odata::download)
+                .delete(registry::unlist)
+                .post(registry::relist),
         )
         .route(
             "/api/packages/{id}/{version}/symbols",
@@ -175,4 +179,13 @@ pub fn integrations() -> Router<AppState> {
 /// route is left outside the general request timeout.
 pub fn feed_dispatch() -> Router<AppState> {
     Router::new().route("/feeds/{name}/{*path}", axum::routing::any(feeds::endpoint))
+}
+
+/// Legacy NuGet Atom/OData V2 discovery and query endpoints.
+pub fn nuget_v2() -> Router<AppState> {
+    Router::new()
+        .route("/api/v2", get(odata::service))
+        .route("/api/v2/", get(odata::service))
+        .route("/api/v2/$metadata", get(odata::metadata))
+        .route("/api/v2/{*path}", get(odata::endpoint))
 }
