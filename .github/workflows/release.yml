@@ -95,7 +95,6 @@ jobs:
 
   chart:
     needs: manifest
-    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -104,8 +103,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            app_version="$version"
+          else
+            base=$(sed -n 's/^version: *//p' charts/nushelf/Chart.yaml)
+            version="$base-dev.$GITHUB_RUN_NUMBER"
+            app_version="sha-${GITHUB_SHA::7}"
+          fi
           owner="${GITHUB_REPOSITORY_OWNER,,}"
-          helm package charts/nushelf --version "$version" --app-version "$version" --destination "$RUNNER_TEMP"
+          helm package charts/nushelf --version "$version" --app-version "$app_version" --destination "$RUNNER_TEMP"
           echo "$GH_TOKEN" | helm registry login ghcr.io --username "${{ github.actor }}" --password-stdin
           helm push "$RUNNER_TEMP/nushelf-$version.tgz" "oci://ghcr.io/$owner/charts"

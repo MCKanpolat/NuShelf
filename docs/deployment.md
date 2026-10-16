@@ -247,7 +247,7 @@ See [screenshot capture instructions](images/README.md) to regenerate documentat
 
 ## Kubernetes
 
-The [Helm chart](../charts/nushelf/README.md) deploys the registry against an existing PostgreSQL database and any of the storage providers below. Tagged releases (`v1.2.3`) publish a multi-architecture image to `ghcr.io/mckanpolat/nushelf` as `1.2.3` and `1.2`, and the chart to `oci://ghcr.io/mckanpolat/charts/nushelf`. Every push to `main` also publishes the image as `edge` and as an immutable `sha-<commit>` tag, for testing unreleased changes; pin the `sha-` tag rather than `edge`.
+The [Helm chart](../charts/nushelf/README.md) deploys the registry against an existing PostgreSQL database and any of the storage providers below. Tagged releases (`v1.2.3`) publish a multi-architecture image to `ghcr.io/mckanpolat/nushelf` as `1.2.3` and `1.2`, and the chart to `oci://ghcr.io/mckanpolat/charts/nushelf`. Every push to `main` also publishes the image as `edge` and as an immutable `sha-<commit>` tag, and the chart as a prerelease `<chart version>-dev.<run>` whose default image is that commit's `sha-` tag. Use those to test unreleased changes, and pin a `-dev` chart version rather than `edge`.
 
 ## Operational boundaries
 
