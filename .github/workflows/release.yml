@@ -1,16 +1,108 @@
 name: Release
+run-name: Release revision ${{ inputs.revision }} (${{ inputs.bump }})
 on:
-  push:
-    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: Commit SHA or ref already merged into main
+        required: true
+        type: string
+      bump:
+        description: Version increment (auto reads commits since the last release)
+        type: choice
+        default: auto
+        options: [auto, patch, minor, major]
+
+# A single writer reserves version numbers. A failed run retains its draft and
+# tag; dispatching the same revision resumes it instead of incrementing again.
+concurrency:
+  group: nushelf-release
+  cancel-in-progress: false
 permissions:
   contents: read
-  packages: write
-env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/nushelf
+
 jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: read
+    outputs:
+      sha: ${{ steps.version.outputs.sha }}
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      published: ${{ steps.reserve.outputs.published }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Resolve release revision and version
+        id: version
+        env:
+          REVISION: ${{ inputs.revision }}
+          BUMP: ${{ inputs.bump }}
+        run: |
+          git fetch origin main --tags
+          python3 .github/scripts/release.py prepare \
+            --revision "$REVISION" --bump "$BUMP" --repository "$GITHUB_REPOSITORY" \
+            --output "$RUNNER_TEMP/release"
+      - name: Require successful CI for the exact revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.version.outputs.sha }}
+        run: |
+          gh api --method GET --paginate \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs" \
+            -f head_sha="$SHA" -f branch=main -f event=push -f per_page=100 \
+            | jq -r --arg sha "$SHA" '.workflow_runs[] | select(.head_sha == $sha and .conclusion == "success") | .id' > "$RUNNER_TEMP/ci-runs"
+          if [[ ! -s "$RUNNER_TEMP/ci-runs" ]]; then
+            echo "::error::The selected revision needs a successful Docker checks push run on main."
+            exit 1
+          fi
+      - name: Reserve tag and draft release
+        id: reserve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.version.outputs.sha }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '.[] | {tag_name,draft}' > "$RUNNER_TEMP/releases.jsonl"
+          if jq -se --arg tag "$TAG" 'any(.[]; .draft and .tag_name != $tag and (.tag_name | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")))' "$RUNNER_TEMP/releases.jsonl" > /dev/null; then
+            echo "::error::Finish the existing draft release before selecting another revision."
+            exit 1
+          fi
+          state=$(jq -sr --arg tag "$TAG" '[.[] | select(.tag_name == $tag)] | if length == 0 then "absent" elif .[0].draft then "draft" else "published" end' "$RUNNER_TEMP/releases.jsonl")
+          # Never move an existing tag.
+          if git show-ref --verify --quiet "refs/tags/$TAG"; then
+            test "$(git rev-parse "$TAG^{commit}")" = "$SHA"
+          else
+            git -c user.name=github-actions[bot] \
+              -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+              tag --annotate "$TAG" "$SHA" --message "NuShelf $TAG"
+            git push origin "refs/tags/$TAG"
+          fi
+          if [[ "$state" == absent ]]; then
+            gh release create "$TAG" --verify-tag --draft --title "$TAG" \
+              --notes-file "$RUNNER_TEMP/release/notes.md"
+          fi
+          echo "published=$([[ "$state" == published ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-metadata
+          path: ${{ runner.temp }}/release/
+          if-no-files-found: error
+
   image:
+    needs: prepare
+    if: needs.prepare.outputs.published != 'true'
+    permissions:
+      contents: read
+      packages: write
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         include:
           - platform: linux/amd64
@@ -18,48 +110,68 @@ jobs:
           - platform: linux/arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - name: Lowercase image name
-        run: echo "IMAGE=${IMAGE,,}" >> "$GITHUB_ENV"
+        with:
+          path: control
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          path: source
+          persist-credentials: false
+      - name: Stamp release version in build inputs
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: python3 control/.github/scripts/release.py stamp --root source --version "$VERSION"
+      - name: Set image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: source
           target: runtime
           platforms: ${{ matrix.platform }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.version=${{ github.ref_name }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.prepare.outputs.version }}
+            org.opencontainers.image.revision=${{ needs.prepare.outputs.sha }}
             org.opencontainers.image.licenses=MIT
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
       - name: Export digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           mkdir -p "$RUNNER_TEMP/digests"
-          digest='${{ steps.build.outputs.digest }}'
-          touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
       - uses: actions/upload-artifact@v4
         with:
           name: digest-${{ strategy.job-index }}
           path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
           retention-days: 1
 
   manifest:
-    needs: image
+    needs: [prepare, image]
+    permissions:
+      packages: write
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      digest: ${{ steps.manifest.outputs.digest }}
     steps:
-      - name: Lowercase image name
-        run: echo "IMAGE=${IMAGE,,}" >> "$GITHUB_ENV"
+      - name: Set image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v4
         with:
           pattern: digest-*
@@ -70,34 +182,88 @@ jobs:
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.IMAGE }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-      - name: Create multi-arch manifest
+          password: ${{ github.token }}
+      - name: Publish versioned multi-architecture manifest
+        id: manifest
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         working-directory: ${{ runner.temp }}/digests
         run: |
-          docker buildx imagetools create \
-            $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf "$IMAGE@sha256:%s " *)
-          docker buildx imagetools inspect "$IMAGE:${{ steps.meta.outputs.version }}"
+          shopt -s nullglob
+          files=(*)
+          test "${#files[@]}" -eq 2
+          sources=()
+          for digest in "${files[@]}"; do
+            [[ "$digest" =~ ^[a-f0-9]{64}$ ]]
+            sources+=("$IMAGE@sha256:$digest")
+          done
+          docker buildx imagetools create --tag "$IMAGE:$VERSION" "${sources[@]}"
+          digest=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -er '.digest')
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
   chart:
-    needs: manifest
+    needs: [prepare, manifest]
+    permissions:
+      contents: read
+      packages: write
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          path: source
+          persist-credentials: false
       - uses: azure/setup-helm@v4
-      - name: Package and push chart
+        with:
+          version: v3.17.3
+      - name: Validate, package and publish chart
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          version="${GITHUB_REF_NAME#v}"
           owner="${GITHUB_REPOSITORY_OWNER,,}"
-          helm package charts/nushelf --version "$version" --app-version "$version" --destination "$RUNNER_TEMP"
-          echo "$GH_TOKEN" | helm registry login ghcr.io --username "${{ github.actor }}" --password-stdin
-          helm push "$RUNNER_TEMP/nushelf-$version.tgz" "oci://ghcr.io/$owner/charts"
+          mkdir -p "$RUNNER_TEMP/chart"
+          helm lint source/charts/nushelf --strict -f source/charts/nushelf/ci/local-values.yaml
+          helm package source/charts/nushelf --version "$VERSION" \
+            --app-version "$VERSION" --destination "$RUNNER_TEMP/chart"
+          echo "$GH_TOKEN" | helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          helm push "$RUNNER_TEMP/chart/nushelf-$VERSION.tgz" "oci://ghcr.io/$owner/charts"
+          cd "$RUNNER_TEMP/chart"
+          sha256sum "nushelf-$VERSION.tgz" > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-chart
+          path: ${{ runner.temp }}/chart/
+          if-no-files-found: error
+
+  publish:
+    needs: [prepare, manifest, chart]
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-metadata
+          path: release
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-chart
+          path: release
+      - name: Publish GitHub release after all artifacts succeed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          DIGEST: ${{ needs.manifest.outputs.digest }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          printf '\n## Container digest\n\n`%s@%s`\n' "$image" "$DIGEST" >> release/notes.md
+          jq --arg image "$image" --arg digest "$DIGEST" \
+            '. + {image: $image, imageDigest: $digest}' release/release.json > release/provenance.json
+          gh release upload "$TAG" "release/nushelf-$VERSION.tgz" \
+            release/SHA256SUMS release/provenance.json --clobber
+          gh release edit "$TAG" --notes-file release/notes.md --draft=false --latest

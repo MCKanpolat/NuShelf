@@ -361,6 +361,7 @@ An interrupted upload can leave an unreferenced blob after storage succeeds but 
 | Guide | Contents |
 | --- | --- |
 | [Deployment and usage](docs/deployment.md) | Configuration, first profile, NuGet clients, storage credentials, MCP transport, and operations. |
+| [Releases](docs/releases.md) | Release a selected revision with semantic versioning, image/chart publication and generated notes. |
 | [Helm chart](charts/nushelf/README.md) | Kubernetes installation, storage providers, workload identity, Ingress or Gateway API routing, and chart values. |
 | [Trusted Publishing](docs/trusted-publishing.md) | GitHub Actions OIDC policies, temporary credentials and example workflow. |
 | [Deprecation](docs/deprecation.md) | Version lifecycle, replacement recommendations and NuGet client metadata. |
