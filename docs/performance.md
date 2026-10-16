@@ -36,6 +36,8 @@ Defaults: **50,000 packages**, **50,202 versions**, **200,000 search documents**
 
 ### Load model and metrics
 
+After bulk fixture insertion commits, the suite runs `VACUUM (ANALYZE) search_documents` to merge the GIN pending list and refresh planner statistics before warm-read measurements. This avoids depending on autovacuum timing; no planner setting forces index use.
+
 Each phase starts workers behind a barrier. Workers send the configured fixed total number of requests in a **closed loop**: a worker waits for its previous request before issuing another. This measures throughput at a given client concurrency; it does not simulate an externally imposed arrival rate or compensate for coordinated omission.
 
 Timing ends after the entire response body is received, decoded, and checked. It includes HTTP routing, database count/page/version work, response transfer, client JSON decoding, and validation. It excludes setup, seeding, warmups, remote-client network latency, TLS, cloud storage operations, and mixed read/write workloads. The Rust test and application are built in release mode.

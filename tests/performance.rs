@@ -255,6 +255,12 @@ async fn seed(db: &PgPool, packages: u32) -> Result<Uuid> {
         .await?;
     sqlx::query("ANALYZE").execute(&mut *tx).await?;
     tx.commit().await?;
+    // Bulk inserts leave GIN entries in its pending list. Complete normal index
+    // maintenance before measuring warm reads instead of racing autovacuum.
+    // VACUUM must run after the fixture transaction has committed.
+    sqlx::query("VACUUM (ANALYZE) search_documents")
+        .execute(db)
+        .await?;
     Ok(profile)
 }
 
@@ -529,6 +535,10 @@ async fn run(db: &PgPool, settings: &Settings) -> Result<Value> {
     let full_text_plan:Value=sqlx::query_scalar("EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) SELECT count(*) FROM search_documents d WHERE d.channel=2 AND (d.search_vector @@ websearch_to_tsquery('simple','serialization') OR d.package_id LIKE 'serialization%')").fetch_one(db).await?;
     let uses_full_text_index = full_text_plan.to_string().contains("search_fulltext_idx");
     let index_gate_passed = settings.packages < 10_000 || uses_full_text_index;
+    println!(
+        "Full-text index plan: used={uses_full_text_index}, gate={}",
+        if index_gate_passed { "PASS" } else { "FAIL" }
+    );
     let postgres: String = sqlx::query_scalar("SELECT version()").fetch_one(db).await?;
     let mut report = json!({"schemaVersion":1,"generatedAt":Utc::now(),"applicationVersion":env!("CARGO_PKG_VERSION"),"configuration":settings,
         "environment":{"postgres":postgres,"availableCpuThreads":std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1),"operatingSystem":std::env::consts::OS,"architecture":std::env::consts::ARCH},
