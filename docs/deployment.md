@@ -32,11 +32,18 @@ docker compose ps
 | `STORAGE_PATH` | `/data/packages` inside the runtime container. |
 | `MAX_PACKAGE_BYTES` | `104857600` (100 MiB). |
 | `DATABASE_CONNECTIONS` | `20`. |
+| `MAX_CONCURRENT_UPLOADS` | `4` (1–64). Uploads processed at once per replica; extra uploads receive `429`. |
+| `AUTH_FAILURE_LIMIT` | `20`. Rejected credentials allowed per client address and window before that client's authenticated requests receive `429`; `0` disables the limiter. See [Abuse protection](#abuse-protection). |
+| `AUTH_FAILURE_WINDOW_SECONDS` | `300`. |
+| `TRUST_PROXY_HEADERS` | `false`. Set `true` behind a reverse proxy so failures are attributed to the address in `X-Forwarded-For`. |
+| `REQUEST_TIMEOUT_SECONDS` | `120`. Time a handler may take to produce a response (`408` when exceeded). |
+| `UPLOAD_TIMEOUT_SECONDS` | `900`. The same bound for package uploads, including reading the request body. |
+| `BODY_IDLE_TIMEOUT_SECONDS` | `30`. Longest silence tolerated while reading a request body or streaming a response. |
 | `METRICS_BIND_ADDRESS` | Unset (metrics off). Address of a separate Prometheus listener, e.g. `0.0.0.0:9090`; see [Metrics](#metrics). |
 
 Compose supplies the internal `DATABASE_URL` and the runtime binds to `0.0.0.0:5000` inside its container. The host port defaults to `127.0.0.1:5000`. PostgreSQL is not published to the host.
 
-Migrations run automatically on startup. The `postgres-data` and `packages` volumes persist database and local package files independently. Back up both the database and the selected package storage; storage keys must survive restoration.
+Migrations run automatically on startup. The `postgres-data` and `packages` volumes persist database and local package files independently. Back up both the database and the selected package storage with [`scripts/backup.sh`](#backup-and-restore); storage keys must survive restoration.
 
 ### URLs
 
@@ -184,6 +191,39 @@ Set `METRICS_BIND_ADDRESS` to serve Prometheus metrics at `GET /metrics` on a se
 
 `route` is the matched route pattern, such as `/v3/flatcontainer/{id}/{version}/{file}`, so package IDs and versions never become label values. Publishes are `PUT /api/v2/package` or `PUT /api/v2/package/` requests (the .NET client uses the trailing slash) and downloads are `GET /v3/flatcontainer/{id}/{version}/{file}` requests.
 
+## Abuse protection
+
+NuShelf counts requests that present an API key or `Authorization` header and are answered `401`. A client address that reaches `AUTH_FAILURE_LIMIT` failures inside the window receives `429 Too Many Requests` with `Retry-After` for further authenticated requests until the window ends. Requests without credentials are never counted or refused, so public reads and NuGet's initial anonymous probe keep working. The budget is per replica and held in memory.
+
+Behind a reverse proxy every request otherwise appears to come from the proxy. Set `TRUST_PROXY_HEADERS=true` only when the proxy sets `X-Forwarded-For`; NuShelf uses the rightmost entry, which the proxy appended, and ignores client-supplied entries to its left. Blocked requests are counted in `nushelf_auth_rate_limited_total` when [metrics](#metrics) are enabled.
+
+Responses carry `Permissions-Policy` and `Cross-Origin-Opener-Policy` headers in addition to the existing CSP. `Strict-Transport-Security` is sent when `PUBLIC_URL` uses `https://`.
+
+Stalled connections are bounded by the timeouts above. Header-read timeouts and TLS belong to the reverse proxy; terminate TLS there and keep its own request-header and body timeouts enabled.
+
+## Backup and restore
+
+A complete backup is a PostgreSQL dump plus a copy of the package storage. For Docker Compose deployments:
+
+```bash
+scripts/backup.sh /srv/backups/nushelf-2026-10-16
+scripts/restore.sh /srv/backups/nushelf-2026-10-16
+```
+
+`backup.sh` dumps the database first and storage second, so the dump never references a package that is missing from the copy, and the server can keep running. It then verifies the copy. Run it again against the same directory to copy only new packages. The directory holds `db.dump` (PostgreSQL custom format, including named-feed schemas) and `storage/` with `manifest.json` (key, size and SHA-256 per object) and the objects themselves.
+
+`restore.sh` asks for confirmation (or pass `--yes`), stops the application, restores storage, replaces the database contents and starts the application again. Storage restore never deletes objects. Because the copy goes through the configured provider, you can restore into a different provider or bucket than the one you backed up; point `.env` at the destination first.
+
+The storage commands are also available directly, which suits Kubernetes jobs and non-Compose setups. They read the same environment as the server:
+
+```bash
+nushelf storage-export <dir>   # copy package storage into <dir>
+nushelf storage-verify <dir>   # check <dir> against its manifest, no storage access
+nushelf storage-import <dir>   # verify, then restore into the configured storage
+```
+
+`storage-import` verifies every file before uploading anything, so a damaged backup changes nothing. For databases outside Compose, use `pg_dump --format custom` and `pg_restore --clean --if-exists`, taking the dump before the storage export and restoring storage before the database. Test a restore into a scratch environment regularly; an untested backup is only a hope.
+
 ## MCP connection
 
 Use a profile key with `mcp:read` and a remote HTTP MCP client. Configuration formats vary; the endpoint and header are illustrated below:
@@ -255,7 +295,7 @@ The [Helm chart](../charts/nushelf/README.md) deploys the registry against an ex
 - Browser sign-in uses API keys; password/SSO, email flows and public self-registration are not implemented. GitHub Actions OIDC is supported for [Trusted Publishing](trusted-publishing.md).
 - The V3 API and V2-shaped publication endpoint are implemented; legacy OData V2 feeds and symbol serving are not.
 - Storage upload completes before metadata commits. An interruption can leave an unreferenced blob; orphan cleanup is available through opt-in [cache maintenance](cache-maintenance.md).
-- Backups need both PostgreSQL and package storage. Provider changes require explicit migration.
-- Readiness validates PostgreSQL, not storage permissions. Validate actual cloud accounts separately.
-- Configure HTTPS, request/rate limits, and proxy body/timeout limits for hosted environments.
+- Backups need both PostgreSQL and package storage; see [Backup and restore](#backup-and-restore). Moving to another provider is a storage export and import.
+- Readiness validates PostgreSQL, lists the package store and writes then deletes a small probe object (cached for 30 seconds), so read-only buckets and credentials without write access take the replica out of service.
+- Authentication failures, request duration and body stalls are bounded (see [Abuse protection](#abuse-protection)). Configure HTTPS, TLS and header-read timeouts at the reverse proxy.
 - Download counts represent served GET requests, including retries, rather than unique users. HEAD and nuspec requests do not increment them.

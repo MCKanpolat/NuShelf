@@ -365,10 +365,11 @@ pub async fn catalog(
                 entries.push(entry);
             }
         }
-        entries.sort_by_key(|e| {
-            NuGetVersion::parse(e["version"].as_str().unwrap())
-                .unwrap()
-                .sort_key
+        entries.sort_by_cached_key(|e| {
+            e["version"]
+                .as_str()
+                .and_then(|v| NuGetVersion::parse(v).ok())
+                .map(|v| v.sort_key)
         });
         if entries.is_empty() {
             return Err(ApiError::not_found());
@@ -405,9 +406,13 @@ pub async fn catalog(
     .await?;
     // Keep discovery visibility synchronized for already cached archives.
     for entry in &entries {
-        let version = NuGetVersion::parse(entry["version"].as_str().unwrap())
-            .unwrap()
-            .normalized;
+        let Some(version) = entry["version"]
+            .as_str()
+            .and_then(|v| NuGetVersion::parse(v).ok())
+            .map(|v| v.normalized)
+        else {
+            continue;
+        };
         sqlx::query("UPDATE upstream_cache SET catalog=$3 WHERE package_id=$1 AND version=$2")
             .bind(&meta.package_id)
             .bind(version)

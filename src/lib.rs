@@ -1,15 +1,18 @@
 pub mod assets;
 pub mod audit;
 pub mod auth;
+pub mod backup;
 pub mod config;
 pub mod deprecation;
 pub mod error;
 pub mod events;
 pub mod feeds;
+pub mod guard;
 pub mod maintenance;
 pub mod mcp;
 pub mod package;
 pub mod registry;
+pub mod routes;
 pub mod storage;
 pub mod telemetry;
 pub mod trusted;
@@ -21,7 +24,6 @@ use axum::{
     extract::{DefaultBodyLimit, State},
     http::{HeaderValue, StatusCode, header},
     response::{Html, IntoResponse},
-    routing::{get, post, put},
 };
 use config::Config;
 use futures_util::StreamExt;
@@ -30,7 +32,10 @@ use serde_json::{Value, json};
 use sqlx::PgPool;
 use std::{sync::Arc, time::Duration};
 use tower_http::{
-    compression::CompressionLayer, set_header::SetResponseHeaderLayer, trace::TraceLayer,
+    compression::CompressionLayer,
+    set_header::SetResponseHeaderLayer,
+    timeout::{RequestBodyTimeoutLayer, ResponseBodyTimeoutLayer, TimeoutLayer},
+    trace::TraceLayer,
 };
 
 #[derive(Clone)]
@@ -39,83 +44,62 @@ pub struct AppState {
     pub storage: Arc<dyn ObjectStore>,
     pub config: Arc<Config>,
     pub upload_slots: Arc<tokio::sync::Semaphore>,
+    pub guard: Arc<guard::Guard>,
     pub feeds: Arc<feeds::FeedPools>,
     pub feed: Option<uuid::Uuid>,
     pub read_prefix: String,
 }
 
+/// The complete application: the scoped router plus the guards that must see
+/// the real client connection, so they run once at the edge and never again
+/// for requests re-dispatched into a named feed.
 pub fn router(state: AppState) -> Router {
-    let upload = Router::new()
-        .route("/api/v2/package", put(registry::push))
-        .route("/api/v2/package/", put(registry::push))
+    let limits = state.config.limits.clone();
+    scoped_router(state.clone())
+        .layer(RequestBodyTimeoutLayer::new(limits.body_idle_timeout))
+        .layer(ResponseBodyTimeoutLayer::new(limits.body_idle_timeout))
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            guard::limit_auth_failures,
+        ))
+}
+
+/// Routes and per-request layers. Named feeds dispatch into this directly
+/// with a feed-scoped state.
+pub fn scoped_router(state: AppState) -> Router {
+    let limits = &state.config.limits;
+    let timed = Router::new()
+        .merge(routes::web())
+        .merge(routes::nuget_v3())
+        .merge(routes::packages())
+        .merge(routes::identity())
+        .merge(routes::operations())
+        .merge(routes::integrations())
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            limits.request_timeout,
+        ));
+    let upload = routes::push()
         .layer(DefaultBodyLimit::max(
             state.config.max_package_bytes + 1024 * 1024,
         ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             limit_uploads,
+        ))
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            limits.upload_timeout,
         ));
+    let hsts = state
+        .config
+        .public_url
+        .starts_with("https://")
+        .then(|| HeaderValue::from_static("max-age=31536000"));
     Router::new()
-        .route("/api/trusted-publishing",get(trusted::list).post(trusted::create))
-        .route("/api/trusted-publishing/exchange",post(trusted::exchange))
-        .route("/api/trusted-publishing/{id}",axum::routing::delete(trusted::disable))
-        .route("/api/events",get(events::list))
-        .route("/api/webhooks",get(events::hooks).post(events::create))
-        .route("/api/webhooks/deliveries",get(events::deliveries))
-        .route("/api/webhooks/dispatch",post(events::deliver_now))
-        .route("/api/webhooks/{id}",axum::routing::delete(events::disable))
-        .route("/api/cache/policy",get(maintenance::policy).patch(maintenance::settings))
-        .route("/api/cache/maintenance",post(maintenance::run))
-        .route("/api/cache/{id}/{version}/protection",put(maintenance::protect))
-        .route("/v3/vulnerabilities/index.json",get(audit::index))
-        .route("/v3/vulnerabilities/{file}",get(audit::page))
-        .route("/api/audit",get(audit::status).patch(audit::settings))
-        .route("/api/audit/sync",post(audit::sync))
-        .route("/api/audit/import",post(audit::import).layer(DefaultBodyLimit::max(16*1024*1024)))
-        .route("/api/audit/packages/{id}",get(audit::package))
-        .route("/feeds/{name}/{*path}",axum::routing::any(feeds::endpoint))
-        .route("/api/feeds",get(feeds::list).post(feeds::create))
-        .route("/api/feeds/{id}",axum::routing::patch(feeds::update))
-        .route("/api/feeds/{id}/members/{profile}",put(feeds::member).delete(feeds::remove_member))
-        .route("/",get(home))
-        .route("/packages",get(home))
-        .route("/packages/{id}",get(home))
-        .route("/packages/{id}/{version}",get(home))
-        .route("/manage",get(home))
-        .route("/publish",get(home))
-        .route("/docs",get(home))
-        .route("/assets/app.css",get(css))
-        .route("/assets/app.js",get(js))
-        .route("/health/live",get(|| async { StatusCode::OK }))
-        .route("/health/ready",get(ready))
-        .route("/v3/index.json",get(registry::service_index))
-        .route("/v3/search",get(upstream::search))
-        .route("/v3/autocomplete",get(upstream::autocomplete))
-        .route("/v3/flatcontainer/{id}/index.json",get(upstream::versions))
-        .route("/v3/flatcontainer/{id}/{version}/{file}",get(upstream::download))
-        .route("/v3/registration/{id}/index.json",get(upstream::registration))
-        .route("/v3/registration/{id}/{file}",get(upstream::registration_leaf))
+        .merge(timed)
         .merge(upload)
-        .route("/api/v2/package/{id}/{version}",axum::routing::delete(registry::unlist).post(registry::relist))
-        .route("/api/v2/package/{id}/{version}/",axum::routing::delete(registry::unlist).post(registry::relist))
-        .route("/api/stats",get(upstream::stats))
-        .route("/api/packages/{id}",get(upstream::details))
-        .route("/api/packages/{id}/{version}/assets",get(assets::details))
-        .route("/api/packages/{id}/{version}/icon",get(assets::icon))
-        .route("/api/packages/{id}/{version}/deprecation",put(deprecation::put).delete(deprecation::clear))
-        .route("/api/upstreams",get(upstream::sources::list).post(upstream::sources::create))
-        .route("/api/upstreams/test",post(upstream::sources::test_input))
-        .route("/api/upstreams/cache",get(upstream::sources::cache_list))
-        .route("/api/upstreams/{id}",axum::routing::put(upstream::sources::update).delete(upstream::sources::delete))
-        .route("/api/upstreams/{id}/test",post(upstream::sources::test_saved))
-        .route("/api/upstreams/{id}/cache",axum::routing::delete(upstream::sources::purge))
-        .route("/api/me",get(auth::me))
-        .route("/api/profiles",get(auth::profiles).post(auth::create_profile))
-        .route("/api/profiles/{id}",axum::routing::patch(auth::rename_profile))
-        .route("/api/profiles/{id}/keys",get(auth::keys).post(auth::create_key))
-        .route("/api/profiles/{id}/keys/{key}",axum::routing::delete(auth::revoke_key))
-        .route("/api/profiles/{id}/packages",get(registry::owned_packages))
-        .route("/mcp",post(mcp::endpoint).get(mcp::no_stream).delete(mcp::no_stream))
+        .merge(routes::feed_dispatch())
         .route_layer(axum::middleware::from_fn(telemetry::track))
         .layer(DefaultBodyLimit::max(64*1024))
         .layer(axum::middleware::from_fn_with_state(state.clone(),events::record))
@@ -124,6 +108,9 @@ pub fn router(state: AppState) -> Router {
         .layer(SetResponseHeaderLayer::if_not_present(header::X_CONTENT_TYPE_OPTIONS,HeaderValue::from_static("nosniff")))
         .layer(SetResponseHeaderLayer::if_not_present(header::REFERRER_POLICY,HeaderValue::from_static("same-origin")))
         .layer(SetResponseHeaderLayer::if_not_present(header::CACHE_CONTROL,HeaderValue::from_static("no-store")))
+        .layer(SetResponseHeaderLayer::if_not_present(header::HeaderName::from_static("permissions-policy"),HeaderValue::from_static("camera=(), microphone=(), geolocation=(), payment=()")))
+        .layer(SetResponseHeaderLayer::if_not_present(header::HeaderName::from_static("cross-origin-opener-policy"),HeaderValue::from_static("same-origin")))
+        .layer(SetResponseHeaderLayer::if_not_present(header::STRICT_TRANSPORT_SECURITY,hsts))
         .layer(SetResponseHeaderLayer::if_not_present(header::CONTENT_SECURITY_POLICY,HeaderValue::from_static("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")))
         .with_state(state)
 }
@@ -141,10 +128,13 @@ async fn limit_uploads(
     };
     next.run(request).await
 }
-async fn home() -> Html<&'static str> {
+pub(crate) async fn live() -> StatusCode {
+    StatusCode::OK
+}
+pub(crate) async fn home() -> Html<&'static str> {
     Html(include_str!("../web/index.html"))
 }
-async fn css() -> impl IntoResponse {
+pub(crate) async fn css() -> impl IntoResponse {
     (
         [
             (header::CONTENT_TYPE, "text/css; charset=utf-8"),
@@ -153,7 +143,7 @@ async fn css() -> impl IntoResponse {
         include_str!("../web/app.css"),
     )
 }
-async fn js() -> impl IntoResponse {
+pub(crate) async fn js() -> impl IntoResponse {
     (
         [
             (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
@@ -163,9 +153,10 @@ async fn js() -> impl IntoResponse {
     )
 }
 const READY_TIMEOUT: Duration = Duration::from_secs(3);
+const WRITE_PROBE_TTL: Duration = Duration::from_secs(30);
 const STORAGE_PROBE_PREFIX: &str = ".nushelf-readiness-probe";
 
-async fn ready(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
+pub(crate) async fn ready(State(state): State<AppState>) -> (StatusCode, Json<Value>) {
     let (database, storage) = tokio::join!(database_ready(&state), storage_ready(&state));
     let status = if database && storage {
         StatusCode::OK
@@ -195,6 +186,9 @@ async fn database_ready(state: &AppState) -> bool {
 /// rejected credentials or an unreachable endpoint all fail the listing, while
 /// an empty result proves the store is reachable and readable.
 async fn storage_ready(state: &AppState) -> bool {
+    storage_listable(state).await && storage_writable(state).await
+}
+async fn storage_listable(state: &AppState) -> bool {
     let prefix = object_store::path::Path::from(STORAGE_PROBE_PREFIX);
     let probe = async {
         let mut listing = state.storage.list(Some(&prefix));
@@ -211,6 +205,53 @@ async fn storage_ready(state: &AppState) -> bool {
         }
         Err(_) => {
             tracing::warn!("readiness: storage check timed out");
+            false
+        }
+    }
+}
+/// Writes and removes a small object, which catches read-only buckets and
+/// credentials without write permission that listing cannot reveal. Success is
+/// cached briefly so frequent probes do not become storage traffic.
+async fn storage_writable(state: &AppState) -> bool {
+    let fresh = |at: &Option<std::time::Instant>| at.is_some_and(|t| t.elapsed() < WRITE_PROBE_TTL);
+    if fresh(
+        &state
+            .guard
+            .write_probe
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()),
+    ) {
+        return true;
+    }
+    let path = object_store::path::Path::from(format!(
+        "{STORAGE_PROBE_PREFIX}/{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    let probe = async {
+        state
+            .storage
+            .put(&path, object_store::PutPayload::from_static(b"ok"))
+            .await?;
+        if let Err(e) = state.storage.delete(&path).await {
+            tracing::warn!(error = %e, "readiness: could not remove the write probe object");
+        }
+        Ok::<_, object_store::Error>(())
+    };
+    match tokio::time::timeout(READY_TIMEOUT, probe).await {
+        Ok(Ok(())) => {
+            *state
+                .guard
+                .write_probe
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
+            true
+        }
+        Ok(Err(e)) => {
+            tracing::warn!(error = %e, "readiness: storage write check failed");
+            false
+        }
+        Err(_) => {
+            tracing::warn!("readiness: storage write check timed out");
             false
         }
     }

@@ -5,3 +5,6 @@
 /test-results/
 *.log
 node_modules/
+
+# graphify knowledge graph output
+graphify-out/

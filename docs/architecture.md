@@ -35,7 +35,10 @@ flowchart LR
 | `events` | Audit attempts, sanitized results, durable webhook outbox and signed delivery retries |
 | `assets` / `deprecation` | Safe Markdown and package assets, ownership-protected lifecycle metadata |
 | `trusted` | GitHub JWKS/signature and claim verification, token replay prevention and temporary feed-bound credentials |
-| `lib` / `main` | Router, security headers, concurrency bound, startup/migrations/shutdown |
+| `routes` | Route tables grouped by audience (web, NuGet V3, push, packages, identity, operations, integrations, feed dispatch) |
+| `guard` | Per-client limiter for rejected credentials and the cached storage write probe |
+| `backup` | Provider-independent export, verification and import of package storage with a SHA-256 manifest |
+| `lib` / `main` | Router assembly and layers (timeouts, security headers, concurrency bound), startup/migrations/shutdown and the `storage-*` commands |
 | `web` | Buildless gallery and management UI embedded into the binary |
 
 ## Publication and ownership
@@ -86,4 +89,6 @@ Details and operational boundaries: [upstream guide](upstreams.md).
 
 Runtime container is a stripped Rust binary on Debian slim, runs as UID 10001 and embeds gallery assets. Bind inside Docker is `0.0.0.0:5000`; host publication defaults to localhost. PostgreSQL is private to the Compose network. `PUBLIC_URL` must be a reachable origin and is independent of the internal bind address. Reverse proxy deployments must set it to the external HTTPS origin. The app handles termination gracefully and closes its connection pool.
 
-Readiness checks PostgreSQL and lists an unused prefix in the package store, so a missing bucket or rejected credentials take the replica out of service. Maximum four simultaneous upload requests and a configured per-package size bound limit memory pressure. Remote storage operation failures are logged server-side without exposing their internal messages to clients. Download counters count served GET requests, including retries, rather than unique users; HEAD and nuspec reads are excluded.
+Readiness checks PostgreSQL, lists an unused prefix in the package store and writes then deletes a probe object (success cached for 30 seconds), so a missing bucket, rejected credentials or a read-only store take the replica out of service. A configurable number of simultaneous uploads (default four) and a per-package size bound limit memory pressure.
+
+Requests are bounded by a response timeout (a longer one for uploads, which includes reading the body) and by an idle timeout on request and response bodies. A limiter on rejected credentials runs once at the edge; named-feed requests re-dispatched into the feed-scoped router skip it so failures are not counted twice. Package storage backups are consistent without stopping the server because archives are immutable; database dump first, storage second. Remote storage operation failures are logged server-side without exposing their internal messages to clients. Download counters count served GET requests, including retries, rather than unique users; HEAD and nuspec reads are excluded.

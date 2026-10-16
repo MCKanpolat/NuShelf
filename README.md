@@ -355,7 +355,7 @@ Tests exercise NuGet version ordering, malformed ZIP/XML handling, ownership, ke
 
 **Not implemented yet:** legacy OData V2 feeds, symbol serving / `.snupkg`, proactive/full upstream mirroring, federated upstream keyword search, NuGet catalog feeds, package signature validation, password/OIDC browser sign-in, email flows, public self-registration, and private reads in the root registry (named feeds support private local packages).
 
-An interrupted upload can leave an unreferenced blob after storage succeeds but before the database commits; orphan cleanup runs when cache maintenance is enabled. Readiness checks PostgreSQL and that the package store can be listed; it does not test storage write permissions. The deployment guide covers these operational boundaries.
+An interrupted upload can leave an unreferenced blob after storage succeeds but before the database commits; orphan cleanup runs when cache maintenance is enabled. Readiness checks PostgreSQL and that the package store can be listed and written. The deployment guide covers [backup and restore](docs/deployment.md#backup-and-restore), [abuse protection](docs/deployment.md#abuse-protection) and other operational boundaries.
 
 ## Documentation
 

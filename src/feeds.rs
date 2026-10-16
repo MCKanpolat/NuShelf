@@ -326,7 +326,7 @@ pub async fn endpoint(
     request
         .headers_mut()
         .remove(axum::http::header::ACCEPT_ENCODING);
-    let response = crate::router(scoped)
+    let response = crate::scoped_router(scoped)
         .oneshot(request)
         .await
         .expect("infallible router");

@@ -145,9 +145,13 @@ async fn store(state: &AppState, mut data: Value) -> ApiResult<String> {
         for items in map.values_mut() {
             if let Some(items) = items.as_array_mut() {
                 items.sort_by(|a, b| {
-                    let ar = range_bounds(a["versions"].as_str().unwrap()).unwrap();
-                    let br = range_bounds(b["versions"].as_str().unwrap()).unwrap();
-                    unbounded_first(&ar.2, &br.2)
+                    let bounds = |v: &Value| {
+                        range_bounds(v["versions"].as_str().unwrap_or_default())
+                            .map(|(low, _, high, _)| (low, high))
+                            .unwrap_or_default()
+                    };
+                    let (ar, br) = (bounds(a), bounds(b));
+                    unbounded_first(&ar.1, &br.1)
                         .then(unbounded_first(&ar.0, &br.0))
                         .then(a["url"].as_str().cmp(&b["url"].as_str()))
                 });
@@ -272,12 +276,16 @@ async fn synchronize(state: &AppState) -> ApiResult<String> {
         }
         if let Some(map) = page.as_object() {
             for (id, items) in map {
-                merged
-                    .entry(id.clone())
-                    .or_insert_with(|| json!([]))
-                    .as_array_mut()
-                    .unwrap()
-                    .extend(items.as_array().unwrap().iter().cloned());
+                let (Some(items), Some(target)) = (
+                    items.as_array(),
+                    merged
+                        .entry(id.clone())
+                        .or_insert_with(|| json!([]))
+                        .as_array_mut(),
+                ) else {
+                    return Err(ApiError::bad("Advisories must be arrays"));
+                };
+                target.extend(items.iter().cloned());
             }
         }
     }
@@ -356,8 +364,8 @@ pub async fn decorate(state: &AppState, result: &mut Value) -> ApiResult<()> {
             let v = version["version"].as_str().unwrap_or_default();
             let items: Vec<_> = advisories
                 .as_array()
-                .unwrap()
-                .iter()
+                .into_iter()
+                .flatten()
                 .filter(|a| affected(a["versions"].as_str().unwrap_or_default(), v))
                 .cloned()
                 .collect();

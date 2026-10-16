@@ -120,7 +120,7 @@ pub async fn create(
         .bind(input.profile_id)
         .fetch_optional(&state.db)
         .await?;
-        if !role.is_some_and(|r| r != "reader") {
+        if role.is_none_or(|r| r == "reader") {
             return Err(ApiError::bad(
                 "The publisher profile must have publisher or administrator membership in the selected feed",
             ));

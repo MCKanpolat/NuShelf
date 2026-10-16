@@ -128,3 +128,15 @@ Proxies in front of NuShelf must accept request bodies up to `config.maxPackageB
 | `extraEnv` / `extraEnvFrom` / `extraVolumes` / `extraVolumeMounts` | `[]` | Extra configuration, e.g. upstream credentials. |
 
 `helm test <release>` checks `/health/ready` through the Service.
+
+## Abuse protection and backups
+
+Rejected credentials are rate limited per client address (`AUTH_FAILURE_LIMIT`, default 20 per five minutes). Behind an Ingress or Gateway, add `TRUST_PROXY_HEADERS=true` so the address comes from `X-Forwarded-For` rather than the proxy:
+
+```yaml
+extraEnv:
+  - name: TRUST_PROXY_HEADERS
+    value: "true"
+```
+
+Only enable it when the proxy sets the header. The full list of tuning variables is in the [deployment guide](../../docs/deployment.md#abuse-protection). Package storage can be exported and restored with `nushelf storage-export|storage-import <dir>` from a Job or `kubectl exec` (mount a volume for `<dir>`); pair it with `pg_dump` as described in [Backup and restore](../../docs/deployment.md#backup-and-restore).

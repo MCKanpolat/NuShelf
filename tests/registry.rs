@@ -86,6 +86,10 @@ async fn postgres_registry_local_and_s3() {
             storage_provider: provider.into(),
             storage_path: dir.path().to_str().unwrap().into(),
             metrics_bind: None,
+            limits: nushelf::config::Limits {
+                auth_failures: 0,
+                ..Default::default()
+            },
         };
         let storage: Arc<dyn object_store::ObjectStore> = if provider == "local" {
             nushelf::storage::build(&config).unwrap()
@@ -107,6 +111,7 @@ async fn postgres_registry_local_and_s3() {
             storage: storage.clone(),
             config: Arc::new(config),
             upload_slots: Arc::new(tokio::sync::Semaphore::new(4)),
+            guard: Default::default(),
             feeds: Arc::default(),
             feed: None,
             read_prefix: String::new(),
@@ -167,12 +172,17 @@ async fn postgres_registry_local_and_s3() {
                 storage_provider: "s3".into(),
                 storage_path: dir.path().to_str().unwrap().into(),
                 metrics_bind: None,
+                limits: nushelf::config::Limits {
+                    auth_failures: 0,
+                    ..Default::default()
+                },
             };
             let broken = AppState {
                 db: db.clone(),
                 storage: missing_bucket,
                 config: Arc::new(broken_config),
                 upload_slots: Arc::new(tokio::sync::Semaphore::new(1)),
+                guard: Default::default(),
                 feeds: Arc::default(),
                 feed: None,
                 read_prefix: String::new(),

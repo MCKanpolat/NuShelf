@@ -91,6 +91,10 @@ async fn named_feeds_isolate_packages_storage_search_and_permissions() {
             storage_provider: provider.into(),
             storage_path: dir.path().to_str().unwrap().into(),
             metrics_bind: None,
+            limits: nushelf::config::Limits {
+                auth_failures: 0,
+                ..Default::default()
+            },
         };
         let storage: Arc<dyn object_store::ObjectStore> = if provider == "local" {
             nushelf::storage::build(&config).unwrap()
@@ -112,6 +116,7 @@ async fn named_feeds_isolate_packages_storage_search_and_permissions() {
             storage,
             config: Arc::new(config),
             upload_slots: Arc::new(tokio::sync::Semaphore::new(4)),
+            guard: Default::default(),
             feeds: Arc::default(),
             feed: None,
             read_prefix: String::new(),

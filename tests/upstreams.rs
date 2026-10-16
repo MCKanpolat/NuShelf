@@ -208,6 +208,10 @@ async fn multi_source_read_through_cache_and_private_access() {
             storage_provider: provider.into(),
             storage_path: dir.path().to_string_lossy().into_owned(),
             metrics_bind: None,
+            limits: nushelf::config::Limits {
+                auth_failures: 0,
+                ..Default::default()
+            },
         };
         let storage: Arc<dyn object_store::ObjectStore> = if provider == "local" {
             nushelf::storage::build(&config).unwrap()
@@ -229,6 +233,7 @@ async fn multi_source_read_through_cache_and_private_access() {
             storage: storage.clone(),
             config: Arc::new(config),
             upload_slots: Arc::new(tokio::sync::Semaphore::new(4)),
+            guard: Default::default(),
             feeds: Arc::default(),
             feed: None,
             read_prefix: String::new(),

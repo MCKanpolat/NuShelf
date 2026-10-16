@@ -1,7 +1,9 @@
 use anyhow::Result;
-use nushelf::{AppState, config::Config, router, storage};
+use nushelf::{AppState, backup, config::Config, router, storage};
 use sqlx::postgres::PgPoolOptions;
 use std::{sync::Arc, time::Duration};
+
+const USAGE: &str = "Usage: nushelf [serve]\n       nushelf storage-export <dir>   copy package storage into <dir>\n       nushelf storage-import <dir>   restore package storage from <dir>\n       nushelf storage-verify <dir>   check <dir> against its manifest";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -12,6 +14,33 @@ async fn main() -> Result<()> {
                 .unwrap_or_else(|_| "nushelf=info,tower_http=info".into()),
         )
         .init();
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
+        [] | ["serve"] => {}
+        ["storage-verify", dir] => {
+            let files = backup::verify(dir.as_ref()).await?;
+            println!("Backup is intact: {files} objects verified");
+            return Ok(());
+        }
+        [command @ ("storage-export" | "storage-import"), dir] => {
+            let store = storage::build(&Config::from_env()?)?;
+            let summary = if command == "storage-export" {
+                backup::export(store, dir.as_ref()).await?
+            } else {
+                backup::import(store, dir.as_ref()).await?
+            };
+            println!(
+                "{} objects copied ({} bytes), {} already up to date",
+                summary.copied, summary.bytes, summary.skipped
+            );
+            return Ok(());
+        }
+        ["--help" | "-h" | "help"] => {
+            println!("{USAGE}");
+            return Ok(());
+        }
+        _ => anyhow::bail!("{USAGE}"),
+    }
     let config = Config::from_env()?;
     let db = PgPoolOptions::new()
         .max_connections(config.database_connections)
@@ -42,11 +71,13 @@ async fn main() -> Result<()> {
     sqlx::migrate!("./migrations").run(&db).await?;
     let storage = storage::build(&config)?;
     let address = config.bind;
+    let upload_slots = config.limits.concurrent_uploads;
     let state = AppState {
         db: db.clone(),
         storage,
         config: Arc::new(config),
-        upload_slots: Arc::new(tokio::sync::Semaphore::new(4)),
+        upload_slots: Arc::new(tokio::sync::Semaphore::new(upload_slots)),
+        guard: Arc::default(),
         feeds: Arc::default(),
         feed: None,
         read_prefix: String::new(),
@@ -59,9 +90,12 @@ async fn main() -> Result<()> {
     nushelf::maintenance::worker(state.clone());
     nushelf::events::worker(state.clone());
     tracing::info!(%address,"NuShelf is ready");
-    axum::serve(listener, router(state))
-        .with_graceful_shutdown(shutdown())
-        .await?;
+    axum::serve(
+        listener,
+        router(state).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown())
+    .await?;
     db.close().await;
     Ok(())
 }
