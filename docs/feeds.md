@@ -16,7 +16,7 @@ Workspace administrators manage upstream configuration and credentials. Feed adm
 
 Use `/feeds/<name>/v3/index.json` as the NuGet source and `/feeds/<name>/mcp` for MCP. Private NuGet clients authenticate with HTTP Basic (any username, profile API key as password), or a Bearer key. Publishing additionally needs `package:push`; MCP additionally needs `mcp:read`. Prefix-limited read keys filter search/autocomplete and cannot access other package IDs. Aggregate statistics require an unrestricted key.
 
-The existing root registry remains public. Named public feeds allow anonymous reads; publishing needs membership and a scoped key. The private gallery shell is public so users can open management and sign in; package API data requires authorization. Browser credentials remain in memory.
+The root registry is public by design; private local packages belong in private named feeds. Named public feeds allow anonymous reads; publishing needs membership and a scoped key. The private gallery shell is public so users can open management and sign in; package API data requires authorization. Browser credentials remain in memory.
 
 ## Operations
 
