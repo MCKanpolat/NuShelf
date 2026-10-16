@@ -1,5 +1,8 @@
 use super::model::FIELDS;
-use crate::error::{ApiError, ApiResult};
+use crate::{
+    error::{ApiError, ApiResult},
+    version::NuGetVersion,
+};
 use sqlx::{Postgres, QueryBuilder};
 #[derive(Debug, Clone, PartialEq)]
 enum Token {
@@ -58,6 +61,9 @@ fn tokens(s: &str) -> ApiResult<Vec<Token>> {
     Ok(out)
 }
 pub(super) fn field(name: &str) -> ApiResult<String> {
+    if name == "Version" {
+        return Ok("version_sort".into());
+    }
     let (_, ty) = FIELDS
         .iter()
         .find(|(n, _)| *n == name)
@@ -120,7 +126,14 @@ impl Filter {
             b.push(")");
             return Ok(());
         }
-        self.value(b, depth)?;
+        let property = self.tokens.get(self.at).cloned();
+        if property == Some(Token::Word("Id".into())) {
+            b.push("lower(");
+            self.value(b, depth)?;
+            b.push(")");
+        } else {
+            self.value(b, depth)?;
+        }
         for (op, sql) in [
             ("eq", " = "),
             ("ne", " <> "),
@@ -131,7 +144,23 @@ impl Filter {
         ] {
             if self.word(op) {
                 b.push(sql);
-                self.value(b, depth)?;
+                if let (Some(Token::Word(name)), Some(Token::Text(value))) =
+                    (&property, self.tokens.get(self.at).cloned())
+                {
+                    if name == "Id" || name == "Version" {
+                        let normalized = if name == "Id" {
+                            value.to_ascii_lowercase()
+                        } else {
+                            NuGetVersion::parse(&value)?.sort_key
+                        };
+                        b.push_bind(normalized);
+                        self.at += 1;
+                    } else {
+                        self.value(b, depth)?;
+                    }
+                } else {
+                    self.value(b, depth)?;
+                }
                 break;
             }
         }

@@ -16,7 +16,7 @@ pub(super) async fn build(
     path: &str,
     opts: &Options,
 ) -> ApiResult<(QueryBuilder<'static, Postgres>, bool)> {
-    let semver = path.starts_with("Packages(")
+    let semver = (path.starts_with("Packages(") && path != "Packages()")
         || opts.get("semVerLevel").is_some_and(|s| {
             NuGetVersion::parse(s)
                 .is_ok_and(|v| v.sort_key >= NuGetVersion::parse("2.0.0").unwrap().sort_key)
@@ -26,6 +26,7 @@ pub(super) async fn build(
     } else if let Some(key) = path
         .strip_prefix("Packages(")
         .and_then(|s| s.strip_suffix(')'))
+        .filter(|key| !key.is_empty())
     {
         key.split(',')
             .find_map(|part| part.trim().strip_prefix("Id="))
@@ -57,6 +58,7 @@ pub(super) async fn build(
     if let Some(key) = path
         .strip_prefix("Packages(")
         .and_then(|s| s.strip_suffix(')'))
+        .filter(|key| !key.is_empty())
     {
         let mut keys = Options::new();
         for item in key.split(',') {

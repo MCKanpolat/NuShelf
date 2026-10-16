@@ -50,6 +50,14 @@ async fn legacy_feed_queries_and_private_scope() {
     .await;
     assert_eq!(properties(&feed, "Version"), ["2.0.0"]);
     assert!(properties(&feed, "Description").is_empty());
+    let normalized = xml(c
+        .get(format!("{b}/api/v2/Packages()"))
+        .query(&[("$filter", "Id eq 'example.json' and Version eq '1.0'")])
+        .send()
+        .await
+        .unwrap())
+    .await;
+    assert_eq!(properties(&normalized, "Version"), ["1.0.0"]);
     let count = c
         .get(format!("{b}/api/v2/Packages/$count"))
         .query(&[(
