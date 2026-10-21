@@ -25,6 +25,7 @@ pub fn web() -> Router<AppState> {
         .route("/assets/registry-operations.js", get(crate::operations_js))
         .route("/assets/ownership.js", get(crate::ownership_js))
         .route("/assets/diagnostics.js", get(crate::diagnostics_js))
+        .route("/assets/comparison.js", get(crate::comparison_js))
         .route("/assets/webhooks.js", get(crate::webhooks_js))
         .route("/assets/upstream-discovery.js", get(crate::upstream_js))
         .route("/health/live", get(crate::live))
@@ -70,6 +71,14 @@ pub fn push() -> Router<AppState> {
 /// Package lifecycle, package metadata and statistics.
 pub fn packages() -> Router<AppState> {
     Router::new()
+        .route(
+            "/api/packages/{id}/comparisons",
+            get(crate::comparison::list).post(crate::comparison::create),
+        )
+        .route(
+            "/api/packages/{id}/comparisons/{job}",
+            get(crate::comparison::details),
+        )
         .route("/api/ownership/transfers", get(crate::ownership::list))
         .route(
             "/api/packages/{id}/ownership",

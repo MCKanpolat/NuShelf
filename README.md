@@ -368,6 +368,7 @@ An interrupted upload can leave an unreferenced blob after storage succeeds but 
 | [Feed usage and quotas](docs/usage-quotas.md) | Inspect usage history and enforce publication limits. |
 | [Reverse dependencies](docs/dependents.md) | Inspect declared dependent package versions, frameworks and version ranges. |
 | [Deprecation](docs/deprecation.md) | Version lifecycle, replacement recommendations and NuGet client metadata. |
+| [Package comparison](docs/package-comparison.md) | Durable APICompat analysis and package content, framework and dependency differences. |
 | [Restore diagnostics](docs/restore-diagnostics.md) | Read-only routing, access and upstream diagnosis with client configuration. |
 | [Catalog](docs/catalog.md) | Transactional package history, immutable snapshots, cursor consumption and feed isolation. |
 | [OData V2](docs/odata.md) | Legacy NuGet discovery, Atom metadata, queries, updates, paging and downloads. |

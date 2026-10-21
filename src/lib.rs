@@ -3,6 +3,7 @@ pub mod audit;
 pub mod auth;
 pub mod backup;
 pub mod catalog;
+pub mod comparison;
 pub mod config;
 pub mod dependents;
 pub mod deprecation;
@@ -301,5 +302,12 @@ pub(crate) async fn diagnostics_js() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
         include_str!("../web/diagnostics.js"),
+    )
+}
+
+pub(crate) async fn comparison_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("../web/comparison.js"),
     )
 }

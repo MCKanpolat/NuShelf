@@ -89,6 +89,7 @@ async fn main() -> Result<()> {
     nushelf::audit::worker(state.clone());
     nushelf::maintenance::worker(state.clone());
     nushelf::integrity::worker(state.clone());
+    nushelf::comparison::worker(state.clone());
     nushelf::quota::worker(state.clone());
     nushelf::webhooks::worker(state.clone());
     nushelf::upstream::mirror::worker(state.clone());
