@@ -6,6 +6,7 @@ pub mod catalog;
 pub mod config;
 pub mod dependents;
 pub mod deprecation;
+pub mod diagnostics;
 pub mod error;
 pub mod events;
 pub mod feeds;
@@ -294,4 +295,11 @@ async fn storage_writable(state: &AppState) -> bool {
             false
         }
     }
+}
+
+pub(crate) async fn diagnostics_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("../web/diagnostics.js"),
+    )
 }

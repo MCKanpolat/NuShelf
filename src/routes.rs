@@ -24,6 +24,7 @@ pub fn web() -> Router<AppState> {
         .route("/assets/app.js", get(crate::js))
         .route("/assets/registry-operations.js", get(crate::operations_js))
         .route("/assets/ownership.js", get(crate::ownership_js))
+        .route("/assets/diagnostics.js", get(crate::diagnostics_js))
         .route("/assets/webhooks.js", get(crate::webhooks_js))
         .route("/assets/upstream-discovery.js", get(crate::upstream_js))
         .route("/health/live", get(crate::live))
@@ -141,6 +142,7 @@ pub fn identity() -> Router<AppState> {
 /// Upstream sources, cache policy, vulnerability mirror and named feeds.
 pub fn operations() -> Router<AppState> {
     Router::new()
+        .route("/api/diagnostics/restore", get(crate::diagnostics::explain))
         .route(
             "/api/usage",
             get(crate::quota::status).put(crate::quota::update),

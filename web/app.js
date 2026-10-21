@@ -1,3 +1,4 @@
+import {mountDiagnostics} from '/assets/diagnostics.js';
 import {mountIntegrity,mountUsage} from '/assets/registry-operations.js';
 import {mountOwnership,mountTransferRequest} from '/assets/ownership.js';
 import {mountWebhooks} from '/assets/webhooks.js';
@@ -148,11 +149,12 @@ async function managementPage(generation) {
     if (!profiles.some(p => p.id === selectedProfile)) selectedProfile = profiles[0]?.id || '';
   } else { selectedProfile = identity.profileId; profiles = [{id:selectedProfile,name:identity.name}]; }
   const profile = profiles.find(p => p.id === selectedProfile);
-  const navItems = [['overview','Overview'],...(canManageKeys() ? [['keys','API keys & credentials']] : []),['packages','My packages'],...((identity.admin||identity.scopes?.includes('package:transfer'))?[['ownership','Ownership transfers']]:[]),['feeds','Feeds & teams'],...((identity.admin||(feedBase&&identity.scopes?.includes('feeds:manage')))?[['usage','Feed usage & quota']]:[]),...(identity.admin ? [['profiles','Publisher profiles'],['upstreams','Upstream sources'],['cache','Package cache'],['trusted','Trusted Publishing'],['events','Audit log'],['webhooks','Webhooks'],['security','Package security'],['integrity','Storage integrity'],['settings','Registry settings']] : [])];
+  const navItems = [['overview','Overview'],['diagnostics','Restore diagnostics'],...(canManageKeys() ? [['keys','API keys & credentials']] : []),['packages','My packages'],...((identity.admin||identity.scopes?.includes('package:transfer'))?[['ownership','Ownership transfers']]:[]),['feeds','Feeds & teams'],...((identity.admin||(feedBase&&identity.scopes?.includes('feeds:manage')))?[['usage','Feed usage & quota']]:[]),...(identity.admin ? [['profiles','Publisher profiles'],['upstreams','Upstream sources'],['cache','Package cache'],['trusted','Trusted Publishing'],['events','Audit log'],['webhooks','Webhooks'],['security','Package security'],['integrity','Storage integrity'],['settings','Registry settings']] : [])];
   if (!navItems.some(([id]) => id === tab)) tab = 'overview';
   main.innerHTML = `${heading('Workspace management.', 'A place for your profiles, packages, and API keys.', '<button type="button" class="button" data-action="logout">Sign out ↗</button>')}<div class="shell page-content management-layout"><aside class="management-sidebar"><h3>Workspace</h3>${identity.admin ? `<label class="visually-hidden" for="profile-select">Publisher profile</label><select id="profile-select"><option value="" ${!selectedProfile ? 'selected' : ''}>Select a publisher profile</option>${profiles.map(p => `<option value="${esc(p.id)}" ${p.id === selectedProfile ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select>` : ''}<nav class="management-nav" aria-label="Workspace navigation">${navItems.map(([id,label]) => `<a href="/manage?tab=${id}" class="${tab === id ? 'active' : ''}">${label}</a>`).join('')}</nav><div class="profile-card"><div class="profile-avatar">${esc((profile?.name || 'Admin').slice(0,1).toUpperCase())}</div><strong>${esc(profile?.name || 'Workspace admin')}</strong><br><span>${identity.admin ? 'Administrator access' : 'Publisher profile'}</span></div></aside><section id="management-content">${loading()}</section></div>`;
   const content = $('#management-content');
   try {
+    if (tab === 'diagnostics') {mountDiagnostics(content,{api,esc});return;}
     if (tab === 'feeds') { renderFeeds(content,await api('/api/feeds',{},true)); return; }
     if (tab === 'ownership') {await mountOwnership(content,{api,esc,date,toast,identity});return;}
     if (tab === 'integrity') {await mountIntegrity(content,{api,esc,date,toast});return;}

@@ -350,9 +350,8 @@ docker compose -f compose.test.yml --profile e2e --profile ui down
 
 Tests exercise NuGet version ordering, malformed ZIP/XML handling, ownership, key scopes/revocation, feed isolation, concurrent publication/cache fills, search, downloads, MCP, advisory snapshots, cache protection/cleanup, signed webhook retries, safe README rendering, deprecation and RSA-verified OIDC issuance/replay prevention. Seven Chromium scenarios cover gallery and management flows. The [CI workflow](.github/workflows/ci.yml) defines Docker formatting, Clippy, integration, real .NET, browser and performance checks.
 
-## Current scope
+## Operational notes
 
-**Not implemented yet:** Windows PDBs and `.symbols.nupkg` symbol serving, package signature validation, password/OIDC browser sign-in, email flows, and public self-registration.
 
 An interrupted upload can leave an unreferenced blob after storage succeeds but before the database commits; orphan cleanup runs when cache maintenance is enabled. Readiness checks PostgreSQL and that the package store can be listed and written. The deployment guide covers [backup and restore](docs/deployment.md#backup-and-restore), [abuse protection](docs/deployment.md#abuse-protection) and other operational boundaries.
 
@@ -369,6 +368,7 @@ An interrupted upload can leave an unreferenced blob after storage succeeds but 
 | [Feed usage and quotas](docs/usage-quotas.md) | Inspect usage history and enforce publication limits. |
 | [Reverse dependencies](docs/dependents.md) | Inspect declared dependent package versions, frameworks and version ranges. |
 | [Deprecation](docs/deprecation.md) | Version lifecycle, replacement recommendations and NuGet client metadata. |
+| [Restore diagnostics](docs/restore-diagnostics.md) | Read-only routing, access and upstream diagnosis with client configuration. |
 | [Catalog](docs/catalog.md) | Transactional package history, immutable snapshots, cursor consumption and feed isolation. |
 | [OData V2](docs/odata.md) | Legacy NuGet discovery, Atom metadata, queries, updates, paging and downloads. |
 | [Symbols](docs/symbols.md) | Publishing `.snupkg` files, the symbol server URL, debugger setup, validation and replacement. |
