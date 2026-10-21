@@ -30,6 +30,9 @@ flowchart LR
 | `mcp` | Read-only stateless HTTP MCP protocol |
 | `upstream` | Source routing, credential references, network validation, metadata/archival cache, private read grants and management |
 | `feeds` | Named-feed authorization, schema pools, shared identities and scoped object-store prefixes |
+| `diagnostics` | Read-only resolver policy explanations and safe upstream probes |
+| `comparison` | Leased archive/API comparison jobs and isolated APICompat processes |
+| `inventory` | Feed-isolated application SBOM imports, dependency paths and advisory impact |
 | `audit` | NuGet vulnerability snapshots, fixed-source synchronization and affected-version lookup |
 | `maintenance` | Cache quota/idle eviction, protected versions, delayed deletion and bounded orphan scans |
 | `dependents` | Transactional reverse dependency index and scoped paginated discovery |

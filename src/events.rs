@@ -34,6 +34,14 @@ fn kind(method: &str, path: &str) -> &'static str {
         } else {
             "package.ownership.requested"
         }
+    } else if path.contains("/api/applications") {
+        if method == "DELETE" {
+            "inventory.deleted"
+        } else if path.ends_with("/releases") {
+            "inventory.imported"
+        } else {
+            "application.created"
+        }
     } else if path.contains("/keys") {
         if method == "DELETE" {
             "credential.revoked"

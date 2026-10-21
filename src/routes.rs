@@ -26,6 +26,7 @@ pub fn web() -> Router<AppState> {
         .route("/assets/ownership.js", get(crate::ownership_js))
         .route("/assets/diagnostics.js", get(crate::diagnostics_js))
         .route("/assets/comparison.js", get(crate::comparison_js))
+        .route("/assets/inventory.js", get(crate::inventory_js))
         .route("/assets/webhooks.js", get(crate::webhooks_js))
         .route("/assets/upstream-discovery.js", get(crate::upstream_js))
         .route("/health/live", get(crate::live))
@@ -151,6 +152,27 @@ pub fn identity() -> Router<AppState> {
 /// Upstream sources, cache policy, vulnerability mirror and named feeds.
 pub fn operations() -> Router<AppState> {
     Router::new()
+        .route(
+            "/api/applications",
+            get(crate::inventory::list).post(crate::inventory::create),
+        )
+        .route("/api/applications/impact", get(crate::inventory::impact))
+        .route(
+            "/api/applications/{application}/releases",
+            get(crate::inventory::releases),
+        )
+        .route(
+            "/api/applications/{application}/diff",
+            get(crate::inventory::diff),
+        )
+        .route(
+            "/api/applications/{application}/releases/{release}",
+            get(crate::inventory::release).delete(crate::inventory::delete_release),
+        )
+        .route(
+            "/api/applications/{application}/releases/{release}/sbom",
+            get(crate::inventory::export),
+        )
         .route("/api/diagnostics/restore", get(crate::diagnostics::explain))
         .route(
             "/api/usage",
@@ -258,4 +280,12 @@ pub fn nuget_v2() -> Router<AppState> {
         .route("/api/v2/", get(odata::service))
         .route("/api/v2/$metadata", get(odata::metadata))
         .route("/api/v2/{*path}", get(odata::endpoint))
+}
+
+/// SBOM imports share the publication admission guard before reading JSON bodies.
+pub fn inventory_uploads() -> Router<AppState> {
+    Router::new().route(
+        "/api/applications/{application}/releases",
+        post(crate::inventory::import).layer(DefaultBodyLimit::max(8 * 1024 * 1024)),
+    )
 }

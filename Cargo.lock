@@ -1660,6 +1660,7 @@ dependencies = [
  "metrics",
  "metrics-exporter-prometheus",
  "object_store",
+ "percent-encoding",
  "pulldown-cmark",
  "reqwest",
  "roxmltree",

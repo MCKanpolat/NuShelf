@@ -17,6 +17,8 @@ use subtle::ConstantTimeEq;
 use uuid::Uuid;
 
 pub const SCOPES: &[&str] = &[
+    "inventory:read",
+    "inventory:write",
     "package:push",
     "package:unlist",
     "package:deprecate",

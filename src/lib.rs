@@ -13,6 +13,7 @@ pub mod events;
 pub mod feeds;
 pub mod guard;
 pub mod integrity;
+pub mod inventory;
 pub mod maintenance;
 pub mod mcp;
 pub mod odata;
@@ -85,6 +86,12 @@ pub fn scoped_router(state: AppState) -> Router {
         .merge(routes::packages())
         .merge(routes::identity())
         .merge(routes::operations())
+        .merge(
+            routes::inventory_uploads().layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                limit_uploads,
+            )),
+        )
         .merge(routes::integrations())
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
@@ -309,5 +316,12 @@ pub(crate) async fn comparison_js() -> impl IntoResponse {
     (
         [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
         include_str!("../web/comparison.js"),
+    )
+}
+
+pub(crate) async fn inventory_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("../web/inventory.js"),
     )
 }

@@ -26,6 +26,7 @@ metrics-exporter-prometheus = { version = "0.18", default-features = false }
 object_store = { version = "0.12", features = ["aws", "azure", "gcp"] }
 roxmltree = "0.20"
 pulldown-cmark = "0.13"
+percent-encoding = "2"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream", "gzip"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
