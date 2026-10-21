@@ -4,15 +4,19 @@ pub mod auth;
 pub mod backup;
 pub mod catalog;
 pub mod config;
+pub mod dependents;
 pub mod deprecation;
 pub mod error;
 pub mod events;
 pub mod feeds;
 pub mod guard;
+pub mod integrity;
 pub mod maintenance;
 pub mod mcp;
 pub mod odata;
+pub mod ownership;
 pub mod package;
+pub mod quota;
 pub mod registry;
 pub mod routes;
 pub mod storage;
@@ -173,6 +177,18 @@ pub(crate) async fn webhooks_js() -> impl IntoResponse {
             (header::CACHE_CONTROL, "public, max-age=300"),
         ],
         include_str!("../web/webhooks.js"),
+    )
+}
+pub(crate) async fn ownership_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("../web/ownership.js"),
+    )
+}
+pub(crate) async fn operations_js() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        include_str!("../web/registry-operations.js"),
     )
 }
 const READY_TIMEOUT: Duration = Duration::from_secs(3);

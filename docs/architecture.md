@@ -32,6 +32,10 @@ flowchart LR
 | `feeds` | Named-feed authorization, schema pools, shared identities and scoped object-store prefixes |
 | `audit` | NuGet vulnerability snapshots, fixed-source synchronization and affected-version lookup |
 | `maintenance` | Cache quota/idle eviction, protected versions, delayed deletion and bounded orphan scans |
+| `dependents` | Transactional reverse dependency index and scoped paginated discovery |
+| `ownership` | Consent-based package ownership changes using the publication lock |
+| `integrity` | Durable per-object integrity inventories, streaming verification and schedules |
+| `quota` | Transactional publication counters, hard limits and daily usage samples |
 | `events` | Audit attempts, sanitized results and transactional webhook enqueueing |
 | `webhooks` | Receiver configuration, signed deliveries, retry cycles and attempt history |
 | `symbols` | `.snupkg` validation, portable-PDB identification, per-PDB storage and the symbol server endpoint |

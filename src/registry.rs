@@ -44,9 +44,10 @@ pub struct PackageRow {
     pub total_downloads: i64,
     pub published_at: DateTime<Utc>,
     pub owner_name: String,
+    pub owner_id: Uuid,
     pub deprecation: Option<Value>,
 }
-const ROW_SELECT: &str = "SELECT v.*, p.display_id, p.downloads AS total_downloads, o.name AS owner_name FROM package_versions v JOIN packages p ON p.id=v.package_id JOIN profiles o ON o.id=p.owner_id";
+const ROW_SELECT: &str = "SELECT v.*, p.display_id, p.owner_id, p.downloads AS total_downloads, o.name AS owner_name FROM package_versions v JOIN packages p ON p.id=v.package_id JOIN profiles o ON o.id=p.owner_id";
 
 pub fn content_url(state: &AppState, p: &PackageRow) -> String {
     format!(
@@ -204,6 +205,14 @@ pub async fn push(State(state): State<AppState>, request: Request) -> ApiResult<
         parsed.version.normalized,
         Uuid::new_v4()
     );
+    crate::quota::reserve(
+        &mut tx,
+        i64::from(owner.is_none()),
+        1,
+        bytes.len() as i64,
+        0,
+    )
+    .await?;
     let digest = STANDARD.encode(Sha512::digest(&bytes));
     tokio::time::timeout(
         std::time::Duration::from_secs(60),
@@ -587,6 +596,7 @@ pub async fn details_value(state: &AppState, id: &str) -> ApiResult<Value> {
         .unwrap_or_else(|| rows.last().unwrap());
     let mut result = catalog(state, latest);
     result["owner"] = json!(latest.owner_name);
+    result["ownerId"] = json!(latest.owner_id);
     result["totalDownloads"] = json!(latest.total_downloads);
     let symbols = crate::symbols::summary(state, &latest.package_id).await?;
     result["versions"] = json!(rows.iter().rev().map(|p| json!({"version":p.display_version,"normalizedVersion":p.version,"listed":p.listed,"prerelease":p.prerelease,"published":p.published_at,"downloads":p.downloads,"size":p.size,"dependencies":p.dependencies,"deprecation":p.deprecation,"downloadUrl":content_url(state,p),"symbols":symbols.get(&p.version)})).collect::<Vec<_>>());

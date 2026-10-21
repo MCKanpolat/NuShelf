@@ -26,6 +26,14 @@ fn kind(method: &str, path: &str) -> &'static str {
         } else {
             "package.relisted"
         }
+    } else if path.contains("/ownership") {
+        if path.ends_with("/accept") {
+            "package.ownership.transferred"
+        } else if path.ends_with("/cancel") {
+            "package.ownership.cancelled"
+        } else {
+            "package.ownership.requested"
+        }
     } else if path.contains("/keys") {
         if method == "DELETE" {
             "credential.revoked"

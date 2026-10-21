@@ -71,6 +71,7 @@ Profile keys authenticate publishing and MCP requests. The administrator credent
 | Permission | Action |
 | --- | --- |
 | `package:push` | Publish packages. |
+| `package:transfer` | Request or accept package ownership transfers; ownership, prefix and feed membership checks also apply. |
 | `package:unlist` | Unlist or relist owned versions. |
 | `package:read` | Read private feeds with membership, and private upstream caches granted to this profile. |
 | `package:deprecate` | Deprecate local versions and recommend alternatives. |

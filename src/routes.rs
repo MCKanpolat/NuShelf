@@ -22,6 +22,8 @@ pub fn web() -> Router<AppState> {
         .route("/docs", get(crate::home))
         .route("/assets/app.css", get(crate::css))
         .route("/assets/app.js", get(crate::js))
+        .route("/assets/registry-operations.js", get(crate::operations_js))
+        .route("/assets/ownership.js", get(crate::ownership_js))
         .route("/assets/webhooks.js", get(crate::webhooks_js))
         .route("/assets/upstream-discovery.js", get(crate::upstream_js))
         .route("/health/live", get(crate::live))
@@ -67,6 +69,23 @@ pub fn push() -> Router<AppState> {
 /// Package lifecycle, package metadata and statistics.
 pub fn packages() -> Router<AppState> {
     Router::new()
+        .route("/api/ownership/transfers", get(crate::ownership::list))
+        .route(
+            "/api/packages/{id}/ownership",
+            post(crate::ownership::request),
+        )
+        .route(
+            "/api/ownership/transfers/{id}/accept",
+            post(crate::ownership::accept),
+        )
+        .route(
+            "/api/ownership/transfers/{id}/cancel",
+            post(crate::ownership::cancel),
+        )
+        .route(
+            "/api/packages/{id}/dependents",
+            get(crate::dependents::list),
+        )
         .route(
             "/api/v2/package/{id}/{version}",
             get(odata::download)
@@ -122,6 +141,16 @@ pub fn identity() -> Router<AppState> {
 /// Upstream sources, cache policy, vulnerability mirror and named feeds.
 pub fn operations() -> Router<AppState> {
     Router::new()
+        .route(
+            "/api/usage",
+            get(crate::quota::status).put(crate::quota::update),
+        )
+        .route(
+            "/api/integrity",
+            get(crate::integrity::status).put(crate::integrity::update),
+        )
+        .route("/api/integrity/runs", post(crate::integrity::start))
+        .route("/api/integrity/runs/{id}", get(crate::integrity::details))
         .route(
             "/api/upstreams",
             get(upstream::sources::list).post(upstream::sources::create),

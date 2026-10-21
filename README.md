@@ -364,6 +364,10 @@ An interrupted upload can leave an unreferenced blob after storage succeeds but 
 | [Releases](docs/releases.md) | Release a selected revision with semantic versioning, image/chart publication and generated notes. |
 | [Helm chart](charts/nushelf/README.md) | Kubernetes installation, storage providers, workload identity, Ingress or Gateway API routing, and chart values. |
 | [Trusted Publishing](docs/trusted-publishing.md) | GitHub Actions OIDC policies, temporary credentials and example workflow. |
+| [Ownership transfers](docs/ownership.md) | Request, accept and audit package ownership changes. |
+| [Storage integrity](docs/integrity.md) | Schedule resumable archive/PDB size and hash checks. |
+| [Feed usage and quotas](docs/usage-quotas.md) | Inspect usage history and enforce publication limits. |
+| [Reverse dependencies](docs/dependents.md) | Inspect declared dependent package versions, frameworks and version ranges. |
 | [Deprecation](docs/deprecation.md) | Version lifecycle, replacement recommendations and NuGet client metadata. |
 | [Catalog](docs/catalog.md) | Transactional package history, immutable snapshots, cursor consumption and feed isolation. |
 | [OData V2](docs/odata.md) | Legacy NuGet discovery, Atom metadata, queries, updates, paging and downloads. |

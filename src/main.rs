@@ -88,6 +88,8 @@ async fn main() -> Result<()> {
     let listener = tokio::net::TcpListener::bind(address).await?;
     nushelf::audit::worker(state.clone());
     nushelf::maintenance::worker(state.clone());
+    nushelf::integrity::worker(state.clone());
+    nushelf::quota::worker(state.clone());
     nushelf::webhooks::worker(state.clone());
     nushelf::upstream::mirror::worker(state.clone());
     tracing::info!(%address,"NuShelf is ready");

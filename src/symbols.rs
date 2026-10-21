@@ -301,6 +301,14 @@ pub async fn push(State(state): State<AppState>, request: Request) -> ApiResult<
             "Symbols for this version already exist; delete them first to replace them",
         ));
     }
+    let symbol_bytes = parsed
+        .files
+        .iter()
+        .try_fold(0_i64, |total, file| {
+            total.checked_add(file.bytes.len() as i64)
+        })
+        .ok_or_else(|| ApiError::bad("Symbol size overflow"))?;
+    crate::quota::reserve(&mut tx, 0, 0, 0, symbol_bytes).await?;
     let mut written: Vec<(String, &SymbolFile)> = Vec::new();
     let outcome = async {
         for file in &parsed.files {

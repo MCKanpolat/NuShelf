@@ -49,6 +49,12 @@ impl IntoResponse for ApiError {
 }
 impl From<sqlx::Error> for ApiError {
     fn from(e: sqlx::Error) -> Self {
+        if let sqlx::Error::Database(ref database) = e
+            && database.code().as_deref() == Some("P0001")
+            && database.message() == "Publication quota exceeded"
+        {
+            return Self(StatusCode::CONFLICT, database.message().into());
+        }
         Self::internal(e)
     }
 }
