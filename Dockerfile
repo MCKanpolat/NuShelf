@@ -12,7 +12,7 @@ COPY examples ./examples
 CMD ["cargo", "test", "--locked", "--", "--include-ignored"]
 
 FROM dev AS build
-RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/usr/local/cargo/git --mount=type=cache,target=/app/target cargo build --release --locked --bin nushelf && cp target/release/nushelf /usr/local/bin/nushelf
+RUN --mount=type=cache,target=/usr/local/cargo/registry --mount=type=cache,target=/usr/local/cargo/git --mount=type=cache,target=/app/target cargo clean --release --package nushelf && cargo build --release --locked --bin nushelf && cp target/release/nushelf /usr/local/bin/nushelf
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0-noble AS apicompat
 RUN dotnet tool install Microsoft.DotNet.ApiCompat.Tool --version 10.0.402 --allow-roll-forward --tool-path /opt/apicompat

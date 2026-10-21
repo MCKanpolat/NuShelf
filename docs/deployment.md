@@ -300,3 +300,7 @@ The [Helm chart](../charts/nushelf/README.md) deploys the registry against an ex
 - Readiness validates PostgreSQL, lists the package store and writes then deletes a small probe object (cached for 30 seconds), so read-only buckets and credentials without write access take the replica out of service.
 - Authentication failures, request duration and body stalls are bounded (see [Abuse protection](#abuse-protection)). Configure HTTPS, TLS and header-read timeouts at the reverse proxy.
 - Download counts represent served GET requests, including retries, rather than unique users. HEAD and nuspec requests do not increment them.
+
+## Container build cache
+
+The production build caches Cargo dependencies but removes NuShelf's own release artifacts before rebuilding after a source-layer change. Docker preserves source timestamps, so a newer cached Cargo fingerprint alone cannot establish that the binary contains the current source. Dependency artifacts stay cached; an unchanged Docker source layer can still reuse the completed image build.
