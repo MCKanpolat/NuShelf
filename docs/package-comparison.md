@@ -10,10 +10,10 @@ Microsoft.DotNet.ApiCompat.Tool reads assembly metadata in a child process; pack
 
 ## Deployment
 
-The production Docker image contains the .NET 10 runtime and Microsoft.DotNet.ApiCompat.Tool 10.0.100. Native deployments need the tool and a compatible .NET runtime:
+The production Docker image uses the official .NET 10 Noble runtime image and Microsoft.DotNet.ApiCompat.Tool 10.0.402. The tool targets .NET 8; installation uses the SDK-supported `--allow-roll-forward` option so its shim can select the installed .NET 10 runtime. Native deployments need the tool and a compatible .NET runtime:
 
 ```sh
-dotnet tool install Microsoft.DotNet.ApiCompat.Tool --version 10.0.100 --tool-path /opt/apicompat
+dotnet tool install Microsoft.DotNet.ApiCompat.Tool --version 10.0.402 --allow-roll-forward --tool-path /opt/apicompat
 export APICOMPAT_PATH=/opt/apicompat/apicompat
 ```
 
